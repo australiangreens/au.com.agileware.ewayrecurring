@@ -317,11 +317,12 @@ class CRM_Core_Payment_eWAYRecurring extends CRM_Core_Payment {
     if ($invoiceDescription == '') {
       $invoiceDescription = 'Invoice ID: ' . $params['invoiceID'];
     }
-
+    \Civi::log()->debug('L320', ['backoffice' => $this->backOffice]);
     if ($this->backOffice) {
       $payment_token = CRM_Utils_Request::retrieve('contact_payment_token', CRM_Utils_Type::typeToString(CRM_Utils_Type::T_INT));
       $payment_token = isset($params['contact_payment_token']) ? $params['contact_payment_token'] : $payment_token;
       $params['payment_token_id'] = $payment_token;
+      \Civi::log()->debug('L325', ['payment_token' => $payment_token]);
       try {
         $result = civicrm_api3('PaymentToken', 'getsingle', [
           'sequential' => 1,
@@ -334,6 +335,7 @@ class CRM_Core_Payment_eWAYRecurring extends CRM_Core_Payment {
         $this->paymentFailed($params, 'Cannot find the payment token.');
       }
       $token = $result['token'];
+      \Civi::log()->debug('L338', ['token' => $token]);
       $eWayTransaction = [
         'Customer' => [
           'TokenCustomerID' =>substr($token,0,16)
@@ -390,6 +392,7 @@ class CRM_Core_Payment_eWAYRecurring extends CRM_Core_Payment {
 
     if ($this->backOffice) {
       $eWAYResponse = $eWayClient->createTransaction(\Eway\Rapid\Enum\ApiMethod::DIRECT, $eWayTransaction);
+      \Civi::log()->debug('L395', ['ewayResponse' => $eWAYResponse]);
     } else {
       $priorTransaction = civicrm_api3('EwayContributionTransactions', 'get', [
         'contribution_id' => $params['contributionID'],
