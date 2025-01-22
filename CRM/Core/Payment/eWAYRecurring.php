@@ -728,7 +728,7 @@ class CRM_Core_Payment_eWAYRecurring extends CRM_Core_Payment {
       //----------------------------------------------------------------------------------------------------
       // Get the payment.  Why isn't this provided to the function.
       //----------------------------------------------------------------------------------------------------
-
+      \Civi::log()->debug('L731 called');
       $contribution = civicrm_api3('ContributionRecur', 'getsingle', [
         'id' => $crid
       ]);
