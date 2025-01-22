@@ -13,6 +13,7 @@ class CRM_eWAYRecurring_Page_VerifyUpdateToken extends CRM_Core_Page {
     if (!empty($recurringContributionID)) {
 
       try {
+        Civi::log()->debug('L16 Called');
         $recurringContribution = civicrm_api3('ContributionRecur', 'getsingle', [
           'id' => $recurringContributionID,
         ]);
