@@ -402,7 +402,7 @@ class CRM_eWAYRecurring_Utils {
     $contributionPageId = $contribution['contribution_page_id'];
 
     try {
-      \Civi::log()->debug('L405 called');
+
       $recurringContribution = civicrm_api3('ContributionRecur', 'getsingle', [
         'id' => $contributionRecurringId,
       ]);
