@@ -474,6 +474,18 @@ class CRM_eWAYRecurring_Utils {
     return NULL;
   }
 
+  /**
+   * Strip non-ASCII characters from a string before sending to eWAY API.
+   *
+   * eWAY's API does not accept multi-byte Unicode characters (e.g. emoji).
+   *
+   * @param string $str
+   * @return string
+   */
+  public static function sanitizeString($str) {
+    return preg_replace('/[^\x20-\x7E]/', '', $str);
+  }
+
   public static function contribution_status_id($name, $for_recur = FALSE) {
     $baoName = $for_recur ? 'CRM_Contribute_BAO_ContributionRecur' : 'CRM_Contribute_BAO_Contribution';
     return \CRM_Core_PseudoConstant::getKey($baoName, 'contribution_status_id', $name);

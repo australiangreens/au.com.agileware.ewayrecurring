@@ -313,7 +313,7 @@ class CRM_Core_Payment_eWAYRecurring extends CRM_Core_Payment {
     //----------------------------------------------------------------------------------------------------
 
     $uniqueTrnxNum = substr($params['invoiceID'], 0, 12);
-    $invoiceDescription = $params['description'];
+    $invoiceDescription = CRM_eWAYRecurring_Utils::sanitizeString($params['description']);
     if ($invoiceDescription == '') {
       $invoiceDescription = 'Invoice ID: ' . $params['invoiceID'];
     }

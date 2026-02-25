@@ -206,8 +206,10 @@ trait CRM_eWAYRecurring_ProcessTrait {
           $token,
           $amount_in_cents,
           substr($invoice_id, 0, 16),
-          $financial_type['name'] . ($contributionSource ?
-            ":\n" . $contributionSource : '')
+          CRM_eWAYRecurring_Utils::sanitizeString(
+            $financial_type['name'] . ($contributionSource ?
+              ': ' . $contributionSource : '')
+          )
         );
 
         $new_contribution_record['trxn_id'] = $eWayResponse->getAttribute('TransactionID');
