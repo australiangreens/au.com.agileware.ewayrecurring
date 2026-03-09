@@ -182,8 +182,10 @@ class CRM_eWAYRecurring_SettlementSyncTest extends \PHPUnit\Framework\TestCase i
     $recentId = $this->createCompletedEwayContribution($processorId, 'TXN003', 100.00, 0.00, '-3 days');
     $oldId = $this->createCompletedEwayContribution($processorId, 'TXN004', 100.00, 0.00, '-10 days');
 
+    // Explicitly set lookback to 5 days so the test is not sensitive to the default.
+    \Civi::settings()->set('eway_settlement_sync_lookback_days', 5);
+
     $sync = new CRM_eWAYRecurring_SettlementSync();
-    // Default lookback is 5 days.
     $result = $sync->getUnreconciledContributions($processorId);
 
     $ids = array_column($result, 'id');
@@ -201,8 +203,8 @@ class CRM_eWAYRecurring_SettlementSyncTest extends \PHPUnit\Framework\TestCase i
     $result = $sync->getUnreconciledContributions($processorId);
 
     $ids = array_column($result, 'id');
-    $this->assertContains($myContributionId, $ids);
-    $this->assertNotContains($otherContributionId, $ids);
+    $this->assertContains($myContributionId, $ids, 'Contribution for this processor should be returned');
+    $this->assertNotContains($otherContributionId, $ids, 'Contribution for a different processor should not be returned');
   }
 
 }

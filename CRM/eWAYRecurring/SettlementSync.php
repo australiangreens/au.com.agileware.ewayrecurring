@@ -47,10 +47,14 @@ class CRM_eWAYRecurring_SettlementSync {
    * reconciled (fee_amount = 0.00) within the lookback window.
    *
    * @param int $processorId
-   * @return array Array of contribution records with id, trxn_id, total_amount.
+   * @return array Array of contribution records with id, trxn_id, total_amount,
+   *   receive_date, and payment_processor_id.
    */
   public function getUnreconciledContributions(int $processorId): array {
     $lookbackDays = (int) Civi::settings()->get('eway_settlement_sync_lookback_days') ?: 5;
+    // Note: cutoff uses a full datetime while the eWAY Settlement API uses calendar
+    // dates (Y-m-d). Both use the same lookback value, so edge-of-day contributions
+    // are consistently included on both sides within the same calendar day.
     $cutoffDate = date('Y-m-d H:i:s', strtotime("-{$lookbackDays} days"));
 
     return Contribution::get(FALSE)
