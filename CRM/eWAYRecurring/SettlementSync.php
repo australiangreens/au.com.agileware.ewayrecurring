@@ -22,7 +22,7 @@ class CRM_eWAYRecurring_SettlementSync {
    */
   private \GuzzleHttp\Client $httpClient;
 
-  public function __construct(\GuzzleHttp\Client $httpClient = NULL) {
+  public function __construct(?\GuzzleHttp\Client $httpClient = NULL) {
     $this->httpClient = $httpClient ?? new \GuzzleHttp\Client();
   }
 

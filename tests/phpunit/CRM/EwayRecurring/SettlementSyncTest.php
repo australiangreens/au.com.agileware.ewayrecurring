@@ -20,8 +20,8 @@ class CRM_EwayRecurring_SettlementSyncTest extends CiviUnitTestCase {
   }
 
   public function setUp(): void {
-    $this->useTransaction(TRUE);
     parent::setUp();
+    $this->useTransaction(TRUE);
   }
 
   // Tests are added in subsequent tasks.
