@@ -160,4 +160,49 @@ class CRM_eWAYRecurring_SettlementSyncTest extends \PHPUnit\Framework\TestCase i
     $this->assertArrayHasKey('is_test', $processor);
   }
 
+  // ---------------------------------------------------------------------------
+  // Task 4: getUnreconciledContributions()
+  // ---------------------------------------------------------------------------
+
+  public function testGetUnreconciledContributionsReturnsUnreconciledOnly(): void {
+    $processorId = $this->createEwayProcessor(FALSE);
+    $unreconciledId = $this->createCompletedEwayContribution($processorId, 'TXN001', 100.00, 0.00);
+    $reconciledId = $this->createCompletedEwayContribution($processorId, 'TXN002', 100.00, 0.55);
+
+    $sync = new CRM_eWAYRecurring_SettlementSync();
+    $result = $sync->getUnreconciledContributions($processorId);
+
+    $ids = array_column($result, 'id');
+    $this->assertContains($unreconciledId, $ids, 'Unreconciled contribution should be returned');
+    $this->assertNotContains($reconciledId, $ids, 'Already reconciled contribution should not be returned');
+  }
+
+  public function testGetUnreconciledContributionsRespectsLookbackWindow(): void {
+    $processorId = $this->createEwayProcessor(FALSE);
+    $recentId = $this->createCompletedEwayContribution($processorId, 'TXN003', 100.00, 0.00, '-3 days');
+    $oldId = $this->createCompletedEwayContribution($processorId, 'TXN004', 100.00, 0.00, '-10 days');
+
+    $sync = new CRM_eWAYRecurring_SettlementSync();
+    // Default lookback is 5 days.
+    $result = $sync->getUnreconciledContributions($processorId);
+
+    $ids = array_column($result, 'id');
+    $this->assertContains($recentId, $ids, 'Recent contribution should be returned');
+    $this->assertNotContains($oldId, $ids, 'Old contribution should not be returned');
+  }
+
+  public function testGetUnreconciledContributionsSkipsOtherProcessors(): void {
+    $processorId = $this->createEwayProcessor(FALSE);
+    $otherProcessorId = $this->createEwayProcessor(FALSE);
+    $myContributionId = $this->createCompletedEwayContribution($processorId, 'TXN005');
+    $otherContributionId = $this->createCompletedEwayContribution($otherProcessorId, 'TXN006');
+
+    $sync = new CRM_eWAYRecurring_SettlementSync();
+    $result = $sync->getUnreconciledContributions($processorId);
+
+    $ids = array_column($result, 'id');
+    $this->assertContains($myContributionId, $ids);
+    $this->assertNotContains($otherContributionId, $ids);
+  }
+
 }

@@ -43,6 +43,29 @@ class CRM_eWAYRecurring_SettlementSync {
   }
 
   /**
+   * Returns Completed eWAY contributions for a processor that have not been
+   * reconciled (fee_amount = 0.00) within the lookback window.
+   *
+   * @param int $processorId
+   * @return array Array of contribution records with id, trxn_id, total_amount.
+   */
+  public function getUnreconciledContributions(int $processorId): array {
+    $lookbackDays = (int) Civi::settings()->get('eway_settlement_sync_lookback_days') ?: 5;
+    $cutoffDate = date('Y-m-d H:i:s', strtotime("-{$lookbackDays} days"));
+
+    return Contribution::get(FALSE)
+      ->addSelect('id', 'trxn_id', 'total_amount', 'receive_date', 'payment_processor_id')
+      ->addWhere('payment_processor_id', '=', $processorId)
+      ->addWhere('contribution_status_id:name', '=', 'Completed')
+      ->addWhere('fee_amount', '=', 0)
+      ->addWhere('receive_date', '>=', $cutoffDate)
+      ->addWhere('trxn_id', 'IS NOT NULL')
+      ->addWhere('trxn_id', '!=', '')
+      ->execute()
+      ->getArrayCopy();
+  }
+
+  /**
    * Main entry point. Syncs settlement data for all active live eWAY processors.
    */
   public function sync(): void {
