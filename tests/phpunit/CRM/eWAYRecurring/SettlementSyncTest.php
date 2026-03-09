@@ -283,4 +283,59 @@ class CRM_eWAYRecurring_SettlementSyncTest extends \PHPUnit\Framework\TestCase i
     $this->assertEquals(49.67, $updated['net_amount']);
   }
 
+  // ---------------------------------------------------------------------------
+  // Task 6: fetchAllSettlementTransactions()
+  // ---------------------------------------------------------------------------
+
+  public function testFetchAllSettlementTransactionsSinglePage(): void {
+    $transactions = [
+      ['TransactionID' => 111, 'FeePerTransaction' => 50, 'Amount' => 1000],
+      ['TransactionID' => 222, 'FeePerTransaction' => 75, 'Amount' => 2000],
+    ];
+
+    $sync = $this->syncWithMockedHttp([
+      $this->makeSettlementResponse($transactions),
+      $this->makeSettlementResponse([]),  // empty page signals end of pagination
+    ]);
+
+    $processor = ['id' => 1, 'user_name' => 'key', 'password' => 'pass', 'is_test' => FALSE];
+    $result = $sync->fetchAllSettlementTransactions($processor);
+
+    $this->assertCount(2, $result);
+    $this->assertEquals(111, $result[0]['TransactionID']);
+    $this->assertEquals(222, $result[1]['TransactionID']);
+  }
+
+  public function testFetchAllSettlementTransactionsMultiplePages(): void {
+    // Simulate a full page (200 items) followed by a partial page (1 item).
+    $fullPage = array_fill(0, CRM_eWAYRecurring_SettlementSync::PAGE_SIZE, ['TransactionID' => 1, 'FeePerTransaction' => 50, 'Amount' => 1000]);
+    $lastPage = [['TransactionID' => 999, 'FeePerTransaction' => 30, 'Amount' => 500]];
+
+    $sync = $this->syncWithMockedHttp([
+      $this->makeSettlementResponse($fullPage),
+      $this->makeSettlementResponse($lastPage),
+    ]);
+
+    $processor = ['id' => 1, 'user_name' => 'key', 'password' => 'pass', 'is_test' => FALSE];
+    $result = $sync->fetchAllSettlementTransactions($processor);
+
+    $this->assertCount(CRM_eWAYRecurring_SettlementSync::PAGE_SIZE + 1, $result);
+  }
+
+  public function testFetchAllSettlementTransactionsUsesSandboxUrl(): void {
+    $container = [];
+    $history = \GuzzleHttp\Middleware::history($container);
+    $mock = new MockHandler([$this->makeSettlementResponse([]), $this->makeSettlementResponse([])]);
+    $handlerStack = HandlerStack::create($mock);
+    $handlerStack->push($history);
+    $client = new \GuzzleHttp\Client(['handler' => $handlerStack]);
+
+    $sync = new CRM_eWAYRecurring_SettlementSync($client);
+    $processor = ['id' => 1, 'user_name' => 'key', 'password' => 'pass', 'is_test' => TRUE];
+    $sync->fetchAllSettlementTransactions($processor);
+
+    $requestUrl = (string) $container[0]['request']->getUri();
+    $this->assertStringStartsWith(CRM_eWAYRecurring_SettlementSync::SETTLEMENT_URL_SANDBOX, $requestUrl);
+  }
+
 }

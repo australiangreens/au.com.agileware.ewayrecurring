@@ -95,6 +95,65 @@ class CRM_eWAYRecurring_SettlementSync {
   }
 
   /**
+   * Fetches all settlement transactions for a processor over the lookback window,
+   * handling pagination automatically.
+   *
+   * @param array $processor Processor record with user_name, password, is_test.
+   * @return array Flat array of settlement transaction records.
+   */
+  public function fetchAllSettlementTransactions(array $processor): array {
+    $all = [];
+    $page = 1;
+
+    do {
+      $response = $this->fetchSettlementPage($processor, $page);
+      $transactions = $response['SettlementTransactions'] ?? [];
+      $all = array_merge($all, $transactions);
+      $page++;
+    } while (count($transactions) >= self::PAGE_SIZE);
+
+    return $all;
+  }
+
+  /**
+   * Fetches a single page of settlement data from the eWAY API.
+   *
+   * NOTE: Verify exact parameter names against https://eway.io/api-v3/#settlement-search
+   * before deploying. The parameters below are based on eWAY API conventions.
+   *
+   * @param array $processor
+   * @param int $page 1-indexed page number.
+   * @return array Decoded response body.
+   * @throws \RuntimeException on eWAY API-level errors (non-empty Errors field).
+   */
+  private function fetchSettlementPage(array $processor, int $page): array {
+    $baseUrl = $processor['is_test']
+      ? self::SETTLEMENT_URL_SANDBOX
+      : self::SETTLEMENT_URL_PRODUCTION;
+
+    $lookbackDays = (int) Civi::settings()->get('eway_settlement_sync_lookback_days') ?: 5;
+    $endDate = date('Y-m-d');
+    $startDate = date('Y-m-d', strtotime("-{$lookbackDays} days"));
+
+    $response = $this->httpClient->get($baseUrl, [
+      'auth' => [$processor['user_name'], $processor['password']],
+      'query' => [
+        'ReportMode' => 'TransactionOnly',
+        'StartDate' => $startDate,
+        'EndDate' => $endDate,
+        'Page' => $page,
+        'PageSize' => self::PAGE_SIZE,
+      ],
+    ]);
+
+    $body = json_decode($response->getBody()->getContents(), TRUE) ?? [];
+    if (!empty($body['Errors'])) {
+      throw new \RuntimeException('eWAY Settlement API error: ' . $body['Errors']);
+    }
+    return $body;
+  }
+
+  /**
    * Main entry point. Syncs settlement data for all active live eWAY processors.
    */
   public function sync(): void {
