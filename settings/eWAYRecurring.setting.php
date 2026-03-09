@@ -49,4 +49,21 @@ return [
     'html_type' => 'checkbox',
     'quick_form_type' => 'YesNo',
   ],
+  'eway_settlement_sync_lookback_days' => [
+    'group_name' => 'eWay Recurring Settings',
+    'group' => 'eWAYRecurring',
+    'name' => 'eway_settlement_sync_lookback_days',
+    'type' => 'Integer',
+    'is_domain' => 1,
+    'is_contact' => 0,
+    'default' => '5',
+    'description' => 'Number of days for settlement sync: used for both (a) querying unreconciled contributions and (b) the eWAY Settlement API date range. Most settlement data is available after ~3 business days; 5 days provides a buffer.',
+    'title' => 'Settlement Sync: Lookback Days',
+    'help_text' => 'Number of days for settlement sync. Used for both contribution lookback and eWAY API date range.',
+    'html_type' => 'Text',
+    'html_attributes' => [
+      'size' => 10,
+    ],
+    'quick_form_type' => 'Element',
+  ],
 ];
