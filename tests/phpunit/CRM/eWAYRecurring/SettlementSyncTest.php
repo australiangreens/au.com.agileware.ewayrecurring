@@ -93,7 +93,7 @@ class CRM_eWAYRecurring_SettlementSyncTest extends \PHPUnit\Framework\TestCase i
       ->addValue('fee_amount', $feeAmount)
       ->addValue('net_amount', $totalAmount - $feeAmount)
       ->addValue('contribution_status_id:name', 'Completed')
-      ->addValue('payment_processor_id', $processorId)
+      ->addValue('payment_instrument_id', $processorId)
       ->addValue('trxn_id', $trxnId)
       ->addValue('receive_date', $date)
       ->execute()
