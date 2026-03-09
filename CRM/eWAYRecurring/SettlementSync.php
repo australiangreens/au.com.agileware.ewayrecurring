@@ -2,6 +2,7 @@
 
 use Civi\Api4\Contribution;
 use Civi\Api4\PaymentProcessor;
+use Civi\Api4\PaymentProcessorType;
 
 /**
  * Reconciles eWAY settlement data against CiviCRM contribution records.
@@ -24,6 +25,21 @@ class CRM_eWAYRecurring_SettlementSync {
 
   public function __construct(?\GuzzleHttp\Client $httpClient = NULL) {
     $this->httpClient = $httpClient ?? new \GuzzleHttp\Client();
+  }
+
+  /**
+   * Returns all active, non-test eWAY payment processors.
+   *
+   * @return array Array of processor records with id, user_name, password, is_test.
+   */
+  public function getLiveEwayProcessors(): array {
+    return PaymentProcessor::get(FALSE)
+      ->addSelect('id', 'user_name', 'password', 'is_test')
+      ->addWhere('payment_processor_type_id:name', '=', 'eWay_Recurring')
+      ->addWhere('is_test', '=', FALSE)
+      ->addWhere('is_active', '=', TRUE)
+      ->execute()
+      ->getArrayCopy();
   }
 
   /**
