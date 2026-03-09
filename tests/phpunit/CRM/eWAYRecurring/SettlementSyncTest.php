@@ -98,23 +98,41 @@ class CRM_eWAYRecurring_SettlementSyncTest extends \PHPUnit\Framework\TestCase i
       ->execute()
       ->first()['id'];
 
-    // Set payment_processor_id on the auto-created FinancialTrxn records so that
-    // the EntityFinancialTrxn bridge join in getUnreconciledContributions() can find them.
-    $linkedTrxnIds = \Civi\Api4\EntityFinancialTrxn::get(FALSE)
-      ->addSelect('financial_trxn_id')
-      ->addWhere('entity_table', '=', 'civicrm_contribution')
-      ->addWhere('entity_id', '=', $contributionId)
-      ->execute()
-      ->column('financial_trxn_id');
-
-    if (!empty($linkedTrxnIds)) {
-      \Civi\Api4\FinancialTrxn::update(FALSE)
-        ->addValue('payment_processor_id', $processorId)
-        ->addWhere('id', 'IN', $linkedTrxnIds)
-        ->execute();
-    }
+    // Explicitly create a FinancialTrxn + EntityFinancialTrxn with payment_processor_id
+    // set so the EntityFinancialTrxn bridge join in getUnreconciledContributions() works.
+    // The headless API does not auto-create these records for direct Contribution::create() calls.
+    $this->linkPaymentProcessorToContribution($contributionId, $processorId, $totalAmount, $date);
 
     return $contributionId;
+  }
+
+  /**
+   * Create a FinancialTrxn with payment_processor_id set and link it to a contribution
+   * via EntityFinancialTrxn, simulating what the eWAY payment processor creates.
+   *
+   * Uses API v3 because entity_table is not exposed in the EntityFinancialTrxn API v4 entity.
+   */
+  private function linkPaymentProcessorToContribution(int $contributionId, int $processorId, float $amount, string $date): void {
+    $toAccountId = (int) civicrm_api3('FinancialAccount', 'getvalue', [
+      'return' => 'id',
+      'is_active' => 1,
+      'options' => ['limit' => 1, 'sort' => 'id ASC'],
+    ]);
+
+    // Passing entity_id + entity_table to FinancialTrxn.create causes CiviCRM
+    // to automatically create the EntityFinancialTrxn link record.
+    civicrm_api3('FinancialTrxn', 'create', [
+      'payment_processor_id' => $processorId,
+      'to_financial_account_id' => $toAccountId,
+      'trxn_date' => $date,
+      'total_amount' => $amount,
+      'net_amount' => $amount,
+      'fee_amount' => 0,
+      'status_id' => 1,
+      'payment_instrument_id' => 1,
+      'entity_id' => $contributionId,
+      'entity_table' => 'civicrm_contribution',
+    ]);
   }
 
   /**
@@ -245,24 +263,9 @@ class CRM_eWAYRecurring_SettlementSyncTest extends \PHPUnit\Framework\TestCase i
     $processorId = $this->createEwayProcessor(FALSE);
     $contributionId = $this->createCompletedEwayContribution($processorId, 'TXN007');
 
-    // Add a second EntityFinancialTrxn row for the same contribution, simulating
-    // e.g. a partial payment or fee transaction alongside the main transaction.
-    $extraTrxnId = \Civi\Api4\FinancialTrxn::create(FALSE)
-      ->addValue('payment_processor_id', $processorId)
-      ->addValue('total_amount', 1.00)
-      ->addValue('net_amount', 1.00)
-      ->addValue('fee_amount', 0)
-      ->addValue('trxn_date', date('Y-m-d H:i:s'))
-      ->addValue('status_id', 1)
-      ->execute()
-      ->first()['id'];
-
-    \Civi\Api4\EntityFinancialTrxn::create(FALSE)
-      ->addValue('entity_table', 'civicrm_contribution')
-      ->addValue('entity_id', $contributionId)
-      ->addValue('financial_trxn_id', $extraTrxnId)
-      ->addValue('amount', 1.00)
-      ->execute();
+    // Add a second FinancialTrxn + EntityFinancialTrxn for the same contribution,
+    // simulating e.g. a fee transaction alongside the main payment transaction.
+    $this->linkPaymentProcessorToContribution($contributionId, $processorId, 0.50, date('Y-m-d H:i:s'));
 
     $sync = new CRM_eWAYRecurring_SettlementSync();
     $result = $sync->getUnreconciledContributions();

@@ -63,8 +63,7 @@ class CRM_eWAYRecurring_SettlementSync {
 
     return Contribution::get(FALSE)
       ->addSelect('id', 'trxn_id', 'total_amount', 'receive_date')
-      ->addJoin('FinancialTrxn AS ft', 'INNER', 'EntityFinancialTrxn',
-        ['entity_table', '=', '"civicrm_contribution"'])
+      ->addJoin('FinancialTrxn AS ft', 'INNER', 'EntityFinancialTrxn')
       ->addJoin('PaymentProcessor AS processor', 'INNER', ['processor.id', '=', 'ft.payment_processor_id'])
       ->addJoin('PaymentProcessorType AS processor_type', 'INNER', ['processor_type.id', '=', 'processor.payment_processor_type_id'])
       ->addWhere('processor_type.name', '=', 'eWay_Recurring')
