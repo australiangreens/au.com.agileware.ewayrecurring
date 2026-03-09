@@ -154,10 +154,52 @@ class CRM_eWAYRecurring_SettlementSync {
   }
 
   /**
-   * Main entry point. Syncs settlement data for all active live eWAY processors.
+   * Main entry point. Fetches all unreconciled eWAY contributions once, then
+   * for each live processor queries the settlement API and reconciles matches.
+   *
+   * Processor isolation is achieved through trxn_id matching: each processor's
+   * settlement API only returns that processor's transactions, so contributions
+   * are only updated when their trxn_id appears in the correct processor's data.
    */
   public function sync(): void {
-    // Implemented in Task 7.
+    $processors = $this->getLiveEwayProcessors();
+    if (empty($processors)) {
+      return;
+    }
+
+    $contributions = $this->getUnreconciledContributions();
+    if (empty($contributions)) {
+      return;
+    }
+
+    // Build lookup map: string trxn_id => contribution record.
+    $contributionMap = [];
+    foreach ($contributions as $contribution) {
+      $contributionMap[(string) $contribution['trxn_id']] = $contribution;
+    }
+
+    foreach ($processors as $processor) {
+      try {
+        $settlementTransactions = $this->fetchAllSettlementTransactions($processor);
+
+        foreach ($settlementTransactions as $txn) {
+          $trxnId = (string) $txn['TransactionID'];
+          if (isset($contributionMap[$trxnId]) && isset($txn['FeePerTransaction'])) {
+            $this->reconcileContribution($contributionMap[$trxnId], $txn);
+            // Remove from map so a contribution is not processed twice
+            // if it somehow appears in multiple processors' settlement data.
+            unset($contributionMap[$trxnId]);
+          }
+        }
+      }
+      catch (\Exception $e) {
+        Civi::log()->warning('eWAY Settlement Sync failed for processor {id}: {msg}', [
+          'id' => $processor['id'],
+          'msg' => $e->getMessage(),
+          'exception' => $e,
+        ]);
+      }
+    }
   }
 
 }

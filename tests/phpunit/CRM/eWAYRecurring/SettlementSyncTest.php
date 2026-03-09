@@ -338,4 +338,58 @@ class CRM_eWAYRecurring_SettlementSyncTest extends \PHPUnit\Framework\TestCase i
     $this->assertStringStartsWith(CRM_eWAYRecurring_SettlementSync::SETTLEMENT_URL_SANDBOX, $requestUrl);
   }
 
+  // ---------------------------------------------------------------------------
+  // Task 7: sync()
+  // ---------------------------------------------------------------------------
+
+  public function testSyncReconcileMatchingContributions(): void {
+    $processorId = $this->createEwayProcessor(FALSE);
+    $contributionId = $this->createCompletedEwayContribution($processorId, '11111', 100.00);
+
+    $settlementTransactions = [
+      ['TransactionID' => 11111, 'FeePerTransaction' => 55, 'Amount' => 10000],
+      ['TransactionID' => 99999, 'FeePerTransaction' => 30, 'Amount' => 5000],
+    ];
+
+    $sync = $this->syncWithMockedHttp([
+      $this->makeSettlementResponse($settlementTransactions),
+      $this->makeSettlementResponse([]),
+    ]);
+
+    $sync->sync();
+
+    $updated = Contribution::get(FALSE)
+      ->addWhere('id', '=', $contributionId)
+      ->addSelect('fee_amount', 'net_amount')
+      ->execute()
+      ->first();
+
+    $this->assertEquals(0.55, $updated['fee_amount']);
+    $this->assertEquals(99.45, $updated['net_amount']);
+  }
+
+  public function testSyncSkipsAlreadyReconciledContributions(): void {
+    $processorId = $this->createEwayProcessor(FALSE);
+    $contributionId = $this->createCompletedEwayContribution($processorId, '22222', 100.00, 0.55);
+
+    $settlementTransactions = [
+      ['TransactionID' => 22222, 'FeePerTransaction' => 99, 'Amount' => 10000],
+    ];
+
+    $sync = $this->syncWithMockedHttp([
+      $this->makeSettlementResponse($settlementTransactions),
+      $this->makeSettlementResponse([]),
+    ]);
+
+    $sync->sync();
+
+    $contribution = Contribution::get(FALSE)
+      ->addWhere('id', '=', $contributionId)
+      ->addSelect('fee_amount')
+      ->execute()
+      ->first();
+
+    $this->assertEquals(0.55, $contribution['fee_amount']);
+  }
+
 }
