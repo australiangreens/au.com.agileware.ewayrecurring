@@ -241,6 +241,38 @@ class CRM_eWAYRecurring_SettlementSyncTest extends \PHPUnit\Framework\TestCase i
     $this->assertNotContains($cashContributionId, $ids, 'Non-eWAY contribution should not be returned');
   }
 
+  public function testGetUnreconciledContributionsDeduplicatesMultipleFinancialTrxn(): void {
+    $processorId = $this->createEwayProcessor(FALSE);
+    $contributionId = $this->createCompletedEwayContribution($processorId, 'TXN007');
+
+    // Add a second EntityFinancialTrxn row for the same contribution, simulating
+    // e.g. a partial payment or fee transaction alongside the main transaction.
+    $extraTrxnId = \Civi\Api4\FinancialTrxn::create(FALSE)
+      ->addValue('payment_processor_id', $processorId)
+      ->addValue('total_amount', 1.00)
+      ->addValue('net_amount', 1.00)
+      ->addValue('fee_amount', 0)
+      ->addValue('trxn_date', date('Y-m-d H:i:s'))
+      ->addValue('status_id', 1)
+      ->execute()
+      ->first()['id'];
+
+    \Civi\Api4\EntityFinancialTrxn::create(FALSE)
+      ->addValue('entity_table', 'civicrm_contribution')
+      ->addValue('entity_id', $contributionId)
+      ->addValue('financial_trxn_id', $extraTrxnId)
+      ->addValue('amount', 1.00)
+      ->execute();
+
+    $sync = new CRM_eWAYRecurring_SettlementSync();
+    $result = $sync->getUnreconciledContributions();
+
+    $ids = array_column($result, 'id');
+    $occurrences = array_count_values($ids);
+    $this->assertContains($contributionId, $ids, 'Contribution should be returned');
+    $this->assertEquals(1, $occurrences[$contributionId], 'Contribution should appear exactly once despite multiple EntityFinancialTrxn rows');
+  }
+
   // ---------------------------------------------------------------------------
   // Task 5: reconcileContribution()
   // ---------------------------------------------------------------------------

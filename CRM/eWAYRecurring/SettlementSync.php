@@ -75,7 +75,7 @@ class CRM_eWAYRecurring_SettlementSync {
       ->addWhere('receive_date', '>=', $cutoffDate)
       ->addWhere('trxn_id', 'IS NOT NULL')
       ->addWhere('trxn_id', '!=', '')
-      ->setDistinct(TRUE)
+      ->addGroupBy('id')
       ->execute()
       ->getArrayCopy();
   }
