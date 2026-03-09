@@ -67,7 +67,7 @@ class CRM_eWAYRecurring_SettlementSync {
       ->addWhere('processor_type.name', '=', 'eWay_Recurring')
       ->addWhere('processor.is_test', '=', FALSE)
       ->addWhere('processor.is_active', '=', TRUE)
-      ->addWhere('contribution_status_id:name', '=', 'Completed')
+      ->addWhere('contribution_status_id', '=', 2)
       ->addWhere('fee_amount', '=', 0)
       ->addWhere('receive_date', '>=', $cutoffDate)
       ->addWhere('trxn_id', 'IS NOT NULL')
