@@ -77,6 +77,24 @@ class CRM_eWAYRecurring_SettlementSync {
   }
 
   /**
+   * Updates fee_amount and net_amount on a contribution from eWAY settlement data.
+   *
+   * @param array $contribution Contribution record with id and total_amount.
+   * @param array $settlementData Settlement transaction from eWAY API.
+   *   Must include FeePerTransaction (integer, in cents). Caller should skip if missing.
+   */
+  public function reconcileContribution(array $contribution, array $settlementData): void {
+    $feeAmount = round($settlementData['FeePerTransaction'] / 100, 2);
+    $netAmount = round((float) $contribution['total_amount'] - $feeAmount, 2);
+
+    Contribution::update(FALSE)
+      ->addValue('fee_amount', $feeAmount)
+      ->addValue('net_amount', $netAmount)
+      ->addWhere('id', '=', $contribution['id'])
+      ->execute();
+  }
+
+  /**
    * Main entry point. Syncs settlement data for all active live eWAY processors.
    */
   public function sync(): void {

@@ -224,4 +224,63 @@ class CRM_eWAYRecurring_SettlementSyncTest extends \PHPUnit\Framework\TestCase i
     $this->assertNotContains($cashContributionId, $ids, 'Non-eWAY contribution should not be returned');
   }
 
+  // ---------------------------------------------------------------------------
+  // Task 5: reconcileContribution()
+  // ---------------------------------------------------------------------------
+
+  public function testReconcileContributionSetsFeeAndNetAmount(): void {
+    $processorId = $this->createEwayProcessor(FALSE);
+    $contributionId = $this->createCompletedEwayContribution($processorId, 'TXN010', 100.00);
+
+    $settlementData = [
+      'TransactionID' => 12345,
+      'FeePerTransaction' => 55,  // 55 cents in eWAY API
+      'Amount' => 10000,
+    ];
+
+    $contribution = Contribution::get(FALSE)
+      ->addWhere('id', '=', $contributionId)
+      ->addSelect('id', 'total_amount')
+      ->execute()
+      ->first();
+
+    $sync = new CRM_eWAYRecurring_SettlementSync();
+    $sync->reconcileContribution($contribution, $settlementData);
+
+    $updated = Contribution::get(FALSE)
+      ->addWhere('id', '=', $contributionId)
+      ->addSelect('fee_amount', 'net_amount', 'total_amount')
+      ->execute()
+      ->first();
+
+    $this->assertEquals(0.55, $updated['fee_amount'], 'fee_amount should be set to FeePerTransaction in dollars');
+    $this->assertEquals(99.45, $updated['net_amount'], 'net_amount should be total_amount minus fee_amount');
+    $this->assertEquals(100.00, $updated['total_amount'], 'total_amount should not be changed');
+  }
+
+  public function testReconcileContributionRoundsToTwoDp(): void {
+    $processorId = $this->createEwayProcessor(FALSE);
+    $contributionId = $this->createCompletedEwayContribution($processorId, 'TXN011', 50.00);
+
+    // 33 cents — deliberately not a clean decimal
+    $settlementData = ['TransactionID' => 12346, 'FeePerTransaction' => 33, 'Amount' => 5000];
+    $contribution = Contribution::get(FALSE)
+      ->addWhere('id', '=', $contributionId)
+      ->addSelect('id', 'total_amount')
+      ->execute()
+      ->first();
+
+    $sync = new CRM_eWAYRecurring_SettlementSync();
+    $sync->reconcileContribution($contribution, $settlementData);
+
+    $updated = Contribution::get(FALSE)
+      ->addWhere('id', '=', $contributionId)
+      ->addSelect('fee_amount', 'net_amount')
+      ->execute()
+      ->first();
+
+    $this->assertEquals(0.33, $updated['fee_amount']);
+    $this->assertEquals(49.67, $updated['net_amount']);
+  }
+
 }
