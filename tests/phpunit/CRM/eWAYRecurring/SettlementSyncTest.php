@@ -86,18 +86,35 @@ class CRM_eWAYRecurring_SettlementSyncTest extends \PHPUnit\Framework\TestCase i
 
     $date = date('Y-m-d H:i:s', strtotime($receiveDate));
 
-    return Contribution::create(FALSE)
+    $contributionId = Contribution::create(FALSE)
       ->addValue('contact_id', $contactId)
       ->addValue('financial_type_id', 1)
       ->addValue('total_amount', $totalAmount)
       ->addValue('fee_amount', $feeAmount)
       ->addValue('net_amount', $totalAmount - $feeAmount)
       ->addValue('contribution_status_id', 2)
-      ->addValue('payment_instrument_id', $processorId)
       ->addValue('trxn_id', $trxnId)
       ->addValue('receive_date', $date)
       ->execute()
       ->first()['id'];
+
+    // Set payment_processor_id on the auto-created FinancialTrxn records so that
+    // the EntityFinancialTrxn bridge join in getUnreconciledContributions() can find them.
+    $linkedTrxnIds = \Civi\Api4\EntityFinancialTrxn::get(FALSE)
+      ->addSelect('financial_trxn_id')
+      ->addWhere('entity_table', '=', 'civicrm_contribution')
+      ->addWhere('entity_id', '=', $contributionId)
+      ->execute()
+      ->column('financial_trxn_id');
+
+    if (!empty($linkedTrxnIds)) {
+      \Civi\Api4\FinancialTrxn::update(FALSE)
+        ->addValue('payment_processor_id', $processorId)
+        ->addWhere('id', 'IN', $linkedTrxnIds)
+        ->execute();
+    }
+
+    return $contributionId;
   }
 
   /**

@@ -46,10 +46,11 @@ class CRM_eWAYRecurring_SettlementSync {
    * Returns all Completed eWAY contributions that have not been reconciled
    * (fee_amount = 0.00) within the lookback window, across all live eWAY processors.
    *
-   * The Contribution entity in CiviCRM API v4 exposes the payment processor reference
-   * as payment_instrument_id. We JOIN through PaymentProcessor and PaymentProcessorType
-   * to scope to live eWAY contributions. Per-processor scoping is then achieved in
-   * sync() through trxn_id matching against each processor's settlement API response.
+   * The join path follows the CiviCRM financial data model:
+   *   Contribution → EntityFinancialTrxn (bridge) → FinancialTrxn → PaymentProcessor → PaymentProcessorType
+   *
+   * setDistinct(TRUE) prevents duplicate rows when a contribution has multiple
+   * linked financial transactions.
    *
    * @return array Array of contribution records with id, trxn_id, total_amount, receive_date.
    */
@@ -62,7 +63,9 @@ class CRM_eWAYRecurring_SettlementSync {
 
     return Contribution::get(FALSE)
       ->addSelect('id', 'trxn_id', 'total_amount', 'receive_date')
-      ->addJoin('PaymentProcessor AS processor', 'INNER', ['processor.id', '=', 'payment_instrument_id'])
+      ->addJoin('FinancialTrxn AS ft', 'INNER', 'EntityFinancialTrxn',
+        ['entity_table', '=', '"civicrm_contribution"'])
+      ->addJoin('PaymentProcessor AS processor', 'INNER', ['processor.id', '=', 'ft.payment_processor_id'])
       ->addJoin('PaymentProcessorType AS processor_type', 'INNER', ['processor_type.id', '=', 'processor.payment_processor_type_id'])
       ->addWhere('processor_type.name', '=', 'eWay_Recurring')
       ->addWhere('processor.is_test', '=', FALSE)
@@ -72,6 +75,7 @@ class CRM_eWAYRecurring_SettlementSync {
       ->addWhere('receive_date', '>=', $cutoffDate)
       ->addWhere('trxn_id', 'IS NOT NULL')
       ->addWhere('trxn_id', '!=', '')
+      ->setDistinct(TRUE)
       ->execute()
       ->getArrayCopy();
   }
