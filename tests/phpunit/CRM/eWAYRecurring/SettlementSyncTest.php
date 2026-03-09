@@ -170,7 +170,7 @@ class CRM_eWAYRecurring_SettlementSyncTest extends \PHPUnit\Framework\TestCase i
     $reconciledId = $this->createCompletedEwayContribution($processorId, 'TXN002', 100.00, 0.55);
 
     $sync = new CRM_eWAYRecurring_SettlementSync();
-    $result = $sync->getUnreconciledContributions($processorId);
+    $result = $sync->getUnreconciledContributions();
 
     $ids = array_column($result, 'id');
     $this->assertContains($unreconciledId, $ids, 'Unreconciled contribution should be returned');
@@ -186,25 +186,42 @@ class CRM_eWAYRecurring_SettlementSyncTest extends \PHPUnit\Framework\TestCase i
     \Civi::settings()->set('eway_settlement_sync_lookback_days', 5);
 
     $sync = new CRM_eWAYRecurring_SettlementSync();
-    $result = $sync->getUnreconciledContributions($processorId);
+    $result = $sync->getUnreconciledContributions();
 
     $ids = array_column($result, 'id');
     $this->assertContains($recentId, $ids, 'Recent contribution should be returned');
     $this->assertNotContains($oldId, $ids, 'Old contribution should not be returned');
   }
 
-  public function testGetUnreconciledContributionsSkipsOtherProcessors(): void {
+  public function testGetUnreconciledContributionsExcludesNonEwayContributions(): void {
     $processorId = $this->createEwayProcessor(FALSE);
-    $otherProcessorId = $this->createEwayProcessor(FALSE);
-    $myContributionId = $this->createCompletedEwayContribution($processorId, 'TXN005');
-    $otherContributionId = $this->createCompletedEwayContribution($otherProcessorId, 'TXN006');
+    $ewayContributionId = $this->createCompletedEwayContribution($processorId, 'TXN005');
+
+    // Create a contribution with no payment processor (e.g. cash/cheque).
+    $contactId = Contact::create(FALSE)
+      ->addValue('contact_type', 'Individual')
+      ->addValue('first_name', 'Cash')
+      ->addValue('last_name', 'Donor')
+      ->execute()
+      ->first()['id'];
+    $cashContributionId = Contribution::create(FALSE)
+      ->addValue('contact_id', $contactId)
+      ->addValue('financial_type_id:name', 'Donation')
+      ->addValue('total_amount', 100.00)
+      ->addValue('fee_amount', 0.00)
+      ->addValue('net_amount', 100.00)
+      ->addValue('contribution_status_id:name', 'Completed')
+      ->addValue('trxn_id', 'TXN006')
+      ->addValue('receive_date', date('Y-m-d H:i:s'))
+      ->execute()
+      ->first()['id'];
 
     $sync = new CRM_eWAYRecurring_SettlementSync();
-    $result = $sync->getUnreconciledContributions($processorId);
+    $result = $sync->getUnreconciledContributions();
 
     $ids = array_column($result, 'id');
-    $this->assertContains($myContributionId, $ids, 'Contribution for this processor should be returned');
-    $this->assertNotContains($otherContributionId, $ids, 'Contribution for a different processor should not be returned');
+    $this->assertContains($ewayContributionId, $ids, 'eWAY contribution should be returned');
+    $this->assertNotContains($cashContributionId, $ids, 'Non-eWAY contribution should not be returned');
   }
 
 }

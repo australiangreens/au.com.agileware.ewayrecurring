@@ -43,14 +43,18 @@ class CRM_eWAYRecurring_SettlementSync {
   }
 
   /**
-   * Returns Completed eWAY contributions for a processor that have not been
-   * reconciled (fee_amount = 0.00) within the lookback window.
+   * Returns all Completed eWAY contributions that have not been reconciled
+   * (fee_amount = 0.00) within the lookback window, across all live eWAY processors.
    *
-   * @param int $processorId
-   * @return array Array of contribution records with id, trxn_id, total_amount,
-   *   receive_date, and payment_processor_id.
+   * payment_processor_id is not exposed as a WHERE-able field on the Contribution
+   * entity in CiviCRM API v4, but it can be used in JOIN conditions. We JOIN
+   * through PaymentProcessor and PaymentProcessorType to scope to eWAY contributions
+   * and exclude test-mode processors. Per-processor scoping is then achieved in
+   * sync() through trxn_id matching against each processor's settlement API response.
+   *
+   * @return array Array of contribution records with id, trxn_id, total_amount, receive_date.
    */
-  public function getUnreconciledContributions(int $processorId): array {
+  public function getUnreconciledContributions(): array {
     $lookbackDays = (int) Civi::settings()->get('eway_settlement_sync_lookback_days') ?: 5;
     // Note: cutoff uses a full datetime while the eWAY Settlement API uses calendar
     // dates (Y-m-d). Both use the same lookback value, so edge-of-day contributions
@@ -58,8 +62,12 @@ class CRM_eWAYRecurring_SettlementSync {
     $cutoffDate = date('Y-m-d H:i:s', strtotime("-{$lookbackDays} days"));
 
     return Contribution::get(FALSE)
-      ->addSelect('id', 'trxn_id', 'total_amount', 'receive_date', 'payment_processor_id')
-      ->addWhere('payment_processor_id', '=', $processorId)
+      ->addSelect('id', 'trxn_id', 'total_amount', 'receive_date')
+      ->addJoin('PaymentProcessor AS processor', 'INNER', ['processor.id', '=', 'payment_processor_id'])
+      ->addJoin('PaymentProcessorType AS processor_type', 'INNER', ['processor_type.id', '=', 'processor.payment_processor_type_id'])
+      ->addWhere('processor_type.name', '=', 'eWay_Recurring')
+      ->addWhere('processor.is_test', '=', FALSE)
+      ->addWhere('processor.is_active', '=', TRUE)
       ->addWhere('contribution_status_id:name', '=', 'Completed')
       ->addWhere('fee_amount', '=', 0)
       ->addWhere('receive_date', '>=', $cutoffDate)
