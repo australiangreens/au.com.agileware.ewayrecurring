@@ -28,18 +28,40 @@ class CRM_eWAYRecurring_SettlementSync {
   }
 
   /**
-   * Returns all active, non-test eWAY payment processors.
+   * Returns the valid options for the eway_settlement_sync_mode setting.
+   * Used as a pseudoconstant callback by the settings form.
    *
+   * @return array<string, string> Value => label pairs.
+   */
+  public static function getModeOptions(): array {
+    return [
+      'live' => ts('Live payments only'),
+      'test' => ts('Test payments only'),
+      'both' => ts('Live and test payments'),
+    ];
+  }
+
+  /**
+   * Returns all active eWAY payment processors matching the given sync mode.
+   *
+   * @param string $mode One of 'live', 'test', or 'both'.
    * @return array Array of processor records with id, user_name, password, is_test.
    */
-  public function getLiveEwayProcessors(): array {
-    return PaymentProcessor::get(FALSE)
+  public function getEwayProcessors(string $mode): array {
+    $query = PaymentProcessor::get(FALSE)
       ->addSelect('id', 'user_name', 'password', 'is_test')
       ->addWhere('payment_processor_type_id:name', '=', 'eWay_Recurring')
-      ->addWhere('is_test', '=', FALSE)
-      ->addWhere('is_active', '=', TRUE)
-      ->execute()
-      ->getArrayCopy();
+      ->addWhere('is_active', '=', TRUE);
+
+    if ($mode === 'live') {
+      $query->addWhere('is_test', '=', FALSE);
+    }
+    elseif ($mode === 'test') {
+      $query->addWhere('is_test', '=', TRUE);
+    }
+    // 'both': no is_test filter
+
+    return $query->execute()->getArrayCopy();
   }
 
   /**
@@ -165,7 +187,7 @@ class CRM_eWAYRecurring_SettlementSync {
    * are only updated when their trxn_id appears in the correct processor's data.
    */
   public function sync(): void {
-    $processors = $this->getLiveEwayProcessors();
+    $processors = $this->getEwayProcessors('live');
     if (empty($processors)) {
       return;
     }

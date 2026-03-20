@@ -159,28 +159,27 @@ class CRM_eWAYRecurring_SettlementSyncTest extends \PHPUnit\Framework\TestCase i
   }
 
   // ---------------------------------------------------------------------------
-  // Task 3: getLiveEwayProcessors()
+  // Task 3: getEwayProcessors()
   // ---------------------------------------------------------------------------
 
-  public function testGetLiveEwayProcessorsReturnsOnlyLiveProcessors(): void {
+  public function testGetEwayProcessorsReturnsOnlyLiveProcessors(): void {
     $liveId = $this->createEwayProcessor(FALSE);
     $testId = $this->createEwayProcessor(TRUE);
 
     $sync = new CRM_eWAYRecurring_SettlementSync();
-    $result = $sync->getLiveEwayProcessors();
+    $result = $sync->getEwayProcessors('live');
 
     $ids = array_column($result, 'id');
-    $this->assertContains($liveId, $ids, 'Live processor should be returned');
-    $this->assertNotContains($testId, $ids, 'Test processor should not be returned');
+    $this->assertContains($liveId, $ids, 'Live processor should be returned in live mode');
+    $this->assertNotContains($testId, $ids, 'Test processor should not be returned in live mode');
   }
 
-  public function testGetLiveEwayProcessorsReturnsCredentials(): void {
+  public function testGetEwayProcessorsReturnsCredentials(): void {
     $createdId = $this->createEwayProcessor(FALSE);
 
     $sync = new CRM_eWAYRecurring_SettlementSync();
-    $result = $sync->getLiveEwayProcessors();
+    $result = $sync->getEwayProcessors('live');
 
-    // Find the processor we just created (there may be others in the DB).
     $processor = NULL;
     foreach ($result as $p) {
       if ($p['id'] === $createdId) {
@@ -193,6 +192,30 @@ class CRM_eWAYRecurring_SettlementSyncTest extends \PHPUnit\Framework\TestCase i
     $this->assertArrayHasKey('user_name', $processor);
     $this->assertArrayHasKey('password', $processor);
     $this->assertArrayHasKey('is_test', $processor);
+  }
+
+  public function testGetEwayProcessorsTestModeReturnsOnlyTestProcessors(): void {
+    $liveId = $this->createEwayProcessor(FALSE);
+    $testId = $this->createEwayProcessor(TRUE);
+
+    $sync = new CRM_eWAYRecurring_SettlementSync();
+    $result = $sync->getEwayProcessors('test');
+
+    $ids = array_column($result, 'id');
+    $this->assertContains($testId, $ids, 'Test processor should be returned in test mode');
+    $this->assertNotContains($liveId, $ids, 'Live processor should not be returned in test mode');
+  }
+
+  public function testGetEwayProcessorsBothModeReturnsBothTypes(): void {
+    $liveId = $this->createEwayProcessor(FALSE);
+    $testId = $this->createEwayProcessor(TRUE);
+
+    $sync = new CRM_eWAYRecurring_SettlementSync();
+    $result = $sync->getEwayProcessors('both');
+
+    $ids = array_column($result, 'id');
+    $this->assertContains($liveId, $ids, 'Live processor should be returned in both mode');
+    $this->assertContains($testId, $ids, 'Test processor should be returned in both mode');
   }
 
   // ---------------------------------------------------------------------------
