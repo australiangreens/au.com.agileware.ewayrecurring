@@ -244,12 +244,17 @@ class CRM_eWAYRecurring_SettlementSyncTest extends \PHPUnit\Framework\TestCase i
     // Explicitly set lookback to 5 days so the test is not sensitive to the default.
     \Civi::settings()->set('eway_settlement_sync_lookback_days', 5);
 
-    $sync = new CRM_eWAYRecurring_SettlementSync();
-    $result = $sync->getUnreconciledContributions('live');
+    try {
+      $sync = new CRM_eWAYRecurring_SettlementSync();
+      $result = $sync->getUnreconciledContributions('live');
 
-    $ids = array_column($result, 'id');
-    $this->assertContains($recentId, $ids, 'Recent contribution should be returned');
-    $this->assertNotContains($oldId, $ids, 'Old contribution should not be returned');
+      $ids = array_column($result, 'id');
+      $this->assertContains($recentId, $ids, 'Recent contribution should be returned');
+      $this->assertNotContains($oldId, $ids, 'Old contribution should not be returned');
+    }
+    finally {
+      \Civi::settings()->revert('eway_settlement_sync_lookback_days');
+    }
   }
 
   public function testGetUnreconciledContributionsExcludesNonEwayContributions(): void {
