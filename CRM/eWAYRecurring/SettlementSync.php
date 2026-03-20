@@ -65,7 +65,7 @@ class CRM_eWAYRecurring_SettlementSync {
     // automatically adds `is_test = 0` to queries that don't
     // explicitly use `is_test` in their Where clauses
     else {
-      $query->addWhere('is_test', 'IN', ['true,false'])
+      $query->addWhere('is_test', 'IN', ['true,false']);
 
     return $query->execute()->getArrayCopy();
   }
