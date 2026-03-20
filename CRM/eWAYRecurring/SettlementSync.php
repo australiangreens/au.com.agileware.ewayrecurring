@@ -59,7 +59,13 @@ class CRM_eWAYRecurring_SettlementSync {
     elseif ($mode === 'test') {
       $query->addWhere('is_test', '=', TRUE);
     }
-    // 'both': no is_test filter
+    // 'both': we have to explicitly search for both values
+    // of is_test because
+    // Civi\Api4\Service\Spec\Provider\GetActionDefaultsProvider
+    // automatically adds `is_test = 0` to queries that don't
+    // explicitly use `is_test` in their Where clauses
+    else {
+      $query->addWhere('is_test', 'IN', ['true,false'])
 
     return $query->execute()->getArrayCopy();
   }
