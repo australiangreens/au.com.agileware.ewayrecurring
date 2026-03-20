@@ -66,7 +66,9 @@ class CRM_eWAYRecurring_SettlementSync {
 
   /**
    * Returns all Completed eWAY contributions that have not been reconciled
-   * (fee_amount = 0.00) within the lookback window, across all live eWAY processors.
+   * (fee_amount = 0.00) within the lookback window. Currently filters to live
+   * processors only (is_test = FALSE hardcoded; a $mode parameter will be added
+   * in a future task).
    *
    * The join path follows the CiviCRM financial data model:
    *   Contribution → EntityFinancialTrxn (bridge) → FinancialTrxn → PaymentProcessor → PaymentProcessorType
@@ -180,7 +182,7 @@ class CRM_eWAYRecurring_SettlementSync {
 
   /**
    * Main entry point. Fetches all unreconciled eWAY contributions once, then
-   * for each live processor queries the settlement API and reconciles matches.
+   * for each processor queries the settlement API and reconciles matches.
    *
    * Processor isolation is achieved through trxn_id matching: each processor's
    * settlement API only returns that processor's transactions, so contributions

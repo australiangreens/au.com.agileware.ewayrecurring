@@ -181,6 +181,7 @@ class CRM_eWAYRecurring_SettlementSyncTest extends \PHPUnit\Framework\TestCase i
     $result = $sync->getEwayProcessors('live');
 
     $processor = NULL;
+    // Find the processor we just created (there may be others in the DB).
     foreach ($result as $p) {
       if ($p['id'] === $createdId) {
         $processor = $p;
