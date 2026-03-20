@@ -66,9 +66,7 @@ class CRM_eWAYRecurring_SettlementSync {
 
   /**
    * Returns all Completed eWAY contributions that have not been reconciled
-   * (fee_amount = 0.00) within the lookback window. Currently filters to live
-   * processors only (is_test = FALSE hardcoded; a $mode parameter will be added
-   * in a future task).
+   * (fee_amount = 0.00) within the lookback window, filtered by sync mode.
    *
    * The join path follows the CiviCRM financial data model:
    *   Contribution → EntityFinancialTrxn (bridge) → FinancialTrxn → PaymentProcessor → PaymentProcessorType
@@ -76,31 +74,39 @@ class CRM_eWAYRecurring_SettlementSync {
    * setDistinct(TRUE) prevents duplicate rows when a contribution has multiple
    * linked financial transactions.
    *
+   * @param string $mode One of 'live', 'test', or 'both'.
    * @return array Array of contribution records with id, trxn_id, total_amount, receive_date.
    */
-  public function getUnreconciledContributions(): array {
+  public function getUnreconciledContributions(string $mode): array {
     $lookbackDays = (int) Civi::settings()->get('eway_settlement_sync_lookback_days') ?: 5;
     // Note: cutoff uses a full datetime while the eWAY Settlement API uses calendar
     // dates (Y-m-d). Both use the same lookback value, so edge-of-day contributions
     // are consistently included on both sides within the same calendar day.
     $cutoffDate = date('Y-m-d H:i:s', strtotime("-{$lookbackDays} days"));
 
-    return Contribution::get(FALSE)
+    $query = Contribution::get(FALSE)
       ->addSelect('id', 'trxn_id', 'total_amount', 'receive_date')
       ->addJoin('FinancialTrxn AS ft', 'INNER', 'EntityFinancialTrxn')
       ->addJoin('PaymentProcessor AS processor', 'INNER', ['processor.id', '=', 'ft.payment_processor_id'])
       ->addJoin('PaymentProcessorType AS processor_type', 'INNER', ['processor_type.id', '=', 'processor.payment_processor_type_id'])
       ->addWhere('processor_type.name', '=', 'eWay_Recurring')
-      ->addWhere('processor.is_test', '=', FALSE)
       ->addWhere('processor.is_active', '=', TRUE)
       ->addWhere('contribution_status_id', '=', 2)
       ->addWhere('fee_amount', '=', 0)
       ->addWhere('receive_date', '>=', $cutoffDate)
       ->addWhere('trxn_id', 'IS NOT NULL')
       ->addWhere('trxn_id', '!=', '')
-      ->addGroupBy('id')
-      ->execute()
-      ->getArrayCopy();
+      ->addGroupBy('id');
+
+    if ($mode === 'live') {
+      $query->addWhere('processor.is_test', '=', FALSE);
+    }
+    elseif ($mode === 'test') {
+      $query->addWhere('processor.is_test', '=', TRUE);
+    }
+    // 'both': no is_test filter
+
+    return $query->execute()->getArrayCopy();
   }
 
   /**
@@ -194,7 +200,7 @@ class CRM_eWAYRecurring_SettlementSync {
       return;
     }
 
-    $contributions = $this->getUnreconciledContributions();
+    $contributions = $this->getUnreconciledContributions('live');
     if (empty($contributions)) {
       return;
     }

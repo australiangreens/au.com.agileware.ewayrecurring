@@ -229,7 +229,7 @@ class CRM_eWAYRecurring_SettlementSyncTest extends \PHPUnit\Framework\TestCase i
     $reconciledId = $this->createCompletedEwayContribution($processorId, 'TXN002', 100.00, 0.55);
 
     $sync = new CRM_eWAYRecurring_SettlementSync();
-    $result = $sync->getUnreconciledContributions();
+    $result = $sync->getUnreconciledContributions('live');
 
     $ids = array_column($result, 'id');
     $this->assertContains($unreconciledId, $ids, 'Unreconciled contribution should be returned');
@@ -245,7 +245,7 @@ class CRM_eWAYRecurring_SettlementSyncTest extends \PHPUnit\Framework\TestCase i
     \Civi::settings()->set('eway_settlement_sync_lookback_days', 5);
 
     $sync = new CRM_eWAYRecurring_SettlementSync();
-    $result = $sync->getUnreconciledContributions();
+    $result = $sync->getUnreconciledContributions('live');
 
     $ids = array_column($result, 'id');
     $this->assertContains($recentId, $ids, 'Recent contribution should be returned');
@@ -276,7 +276,7 @@ class CRM_eWAYRecurring_SettlementSyncTest extends \PHPUnit\Framework\TestCase i
       ->first()['id'];
 
     $sync = new CRM_eWAYRecurring_SettlementSync();
-    $result = $sync->getUnreconciledContributions();
+    $result = $sync->getUnreconciledContributions('live');
 
     $ids = array_column($result, 'id');
     $this->assertContains($ewayContributionId, $ids, 'eWAY contribution should be returned');
@@ -292,12 +292,42 @@ class CRM_eWAYRecurring_SettlementSyncTest extends \PHPUnit\Framework\TestCase i
     $this->linkPaymentProcessorToContribution($contributionId, $processorId, 0.50, date('Y-m-d H:i:s'));
 
     $sync = new CRM_eWAYRecurring_SettlementSync();
-    $result = $sync->getUnreconciledContributions();
+    $result = $sync->getUnreconciledContributions('live');
 
     $ids = array_column($result, 'id');
     $occurrences = array_count_values($ids);
     $this->assertContains($contributionId, $ids, 'Contribution should be returned');
     $this->assertEquals(1, $occurrences[$contributionId], 'Contribution should appear exactly once despite multiple EntityFinancialTrxn rows');
+  }
+
+  public function testGetUnreconciledContributionsTestModeReturnsTestProcessorContributions(): void {
+    $liveProcessorId = $this->createEwayProcessor(FALSE);
+    $testProcessorId = $this->createEwayProcessor(TRUE);
+
+    $liveContributionId = $this->createCompletedEwayContribution($liveProcessorId, 'TXN_LIVE_01');
+    $testContributionId = $this->createCompletedEwayContribution($testProcessorId, 'TXN_TEST_01');
+
+    $sync = new CRM_eWAYRecurring_SettlementSync();
+    $result = $sync->getUnreconciledContributions('test');
+
+    $ids = array_column($result, 'id');
+    $this->assertContains($testContributionId, $ids, 'Test contribution should be returned in test mode');
+    $this->assertNotContains($liveContributionId, $ids, 'Live contribution should not be returned in test mode');
+  }
+
+  public function testGetUnreconciledContributionsBothModeReturnsBothTypes(): void {
+    $liveProcessorId = $this->createEwayProcessor(FALSE);
+    $testProcessorId = $this->createEwayProcessor(TRUE);
+
+    $liveContributionId = $this->createCompletedEwayContribution($liveProcessorId, 'TXN_LIVE_02');
+    $testContributionId = $this->createCompletedEwayContribution($testProcessorId, 'TXN_TEST_02');
+
+    $sync = new CRM_eWAYRecurring_SettlementSync();
+    $result = $sync->getUnreconciledContributions('both');
+
+    $ids = array_column($result, 'id');
+    $this->assertContains($liveContributionId, $ids, 'Live contribution should be returned in both mode');
+    $this->assertContains($testContributionId, $ids, 'Test contribution should be returned in both mode');
   }
 
   // ---------------------------------------------------------------------------
