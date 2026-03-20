@@ -66,6 +66,7 @@ class CRM_eWAYRecurring_SettlementSync {
     // explicitly use `is_test` in their Where clauses
     else {
       $query->addWhere('is_test', 'IN', ['true,false']);
+    }
 
     return $query->execute()->getArrayCopy();
   }
