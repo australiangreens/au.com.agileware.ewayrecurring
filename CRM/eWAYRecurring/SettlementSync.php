@@ -65,7 +65,7 @@ class CRM_eWAYRecurring_SettlementSync {
     // automatically adds `is_test = 0` to queries that don't
     // explicitly use `is_test` in their Where clauses
     else {
-      $query->addWhere('is_test', 'IN', ['true,false']);
+      $query->addWhere('is_test', 'IN', [TRUE, FALSE]);
     }
 
     return $query->execute()->getArrayCopy();
@@ -98,11 +98,11 @@ class CRM_eWAYRecurring_SettlementSync {
       ->addJoin('PaymentProcessorType AS processor_type', 'INNER', ['processor_type.id', '=', 'processor.payment_processor_type_id'])
       ->addWhere('processor_type.name', '=', 'eWay_Recurring')
       ->addWhere('processor.is_active', '=', TRUE)
-      ->addWhere('contribution_status_id', '=', 2)
+      ->addWhere('contribution_status_id', '=', 1)
       ->addWhere('fee_amount', '=', 0)
       ->addWhere('receive_date', '>=', $cutoffDate)
       ->addWhere('trxn_id', 'IS NOT NULL')
-      ->addWhere('trxn_id', '!=', '')
+      ->addWhere('trxn_id', 'IS NOT EMPTY')
       ->addGroupBy('id');
 
     if ($mode === 'live') {
