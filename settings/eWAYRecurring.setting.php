@@ -66,4 +66,21 @@ return [
     ],
     'quick_form_type' => 'Element',
   ],
+  'eway_settlement_sync_mode' => [
+    'group_name' => 'eWay Recurring Settings',
+    'group' => 'eWAYRecurring',
+    'name' => 'eway_settlement_sync_mode',
+    'type' => 'String',
+    'is_domain' => 1,
+    'is_contact' => 0,
+    'default' => 'live',
+    'title' => 'Settlement Sync: Mode',
+    'description' => 'Controls which payment processors are included in the settlement sync.',
+    'html_type' => 'Select',
+    'html_attributes' => [],
+    'quick_form_type' => 'Select',
+    'pseudoconstant' => [
+      'callback' => 'CRM_eWAYRecurring_SettlementSync::getModeOptions',
+    ],
+  ],
 ];

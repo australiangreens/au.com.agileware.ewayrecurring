@@ -189,18 +189,22 @@ class CRM_eWAYRecurring_SettlementSync {
   /**
    * Main entry point. Fetches all unreconciled eWAY contributions once, then
    * for each processor queries the settlement API and reconciles matches.
+   * Which processor types are included is controlled by the
+   * eway_settlement_sync_mode setting ('live', 'test', or 'both').
    *
    * Processor isolation is achieved through trxn_id matching: each processor's
    * settlement API only returns that processor's transactions, so contributions
    * are only updated when their trxn_id appears in the correct processor's data.
    */
   public function sync(): void {
-    $processors = $this->getEwayProcessors('live');
+    $mode = Civi::settings()->get('eway_settlement_sync_mode') ?: 'live';
+
+    $processors = $this->getEwayProcessors($mode);
     if (empty($processors)) {
       return;
     }
 
-    $contributions = $this->getUnreconciledContributions('live');
+    $contributions = $this->getUnreconciledContributions($mode);
     if (empty($contributions)) {
       return;
     }

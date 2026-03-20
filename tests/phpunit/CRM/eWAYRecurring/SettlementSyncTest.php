@@ -498,4 +498,42 @@ class CRM_eWAYRecurring_SettlementSyncTest extends \PHPUnit\Framework\TestCase i
     $this->assertEquals(0.55, $contribution['fee_amount']);
   }
 
+  public function testSyncTestModeReconcilesSandboxContributions(): void {
+    // Set up a test (sandbox) processor and contribution.
+    $testProcessorId = $this->createEwayProcessor(TRUE);
+    $contributionId = $this->createCompletedEwayContribution($testProcessorId, '33333', 50.00);
+
+    // Set the mode setting to 'test' so sync() includes this processor.
+    \Civi::settings()->set('eway_settlement_sync_mode', 'test');
+
+    $settlementTransactions = [
+      ['TransactionID' => 33333, 'FeePerTransaction' => 30, 'Amount' => 5000],
+    ];
+
+    $sync = $this->syncWithMockedHttp([
+      $this->makeSettlementResponse($settlementTransactions),
+      $this->makeSettlementResponse([]),
+    ]);
+
+    // Wrap in try/finally so the setting is always reverted even if an assertion
+    // fails mid-test. TransactionalInterface rolls back DB rows but not the
+    // in-process Civi settings cache, so without this the mode='test' value
+    // would bleed into subsequent tests.
+    try {
+      $sync->sync();
+
+      $updated = Contribution::get(FALSE)
+        ->addWhere('id', '=', $contributionId)
+        ->addSelect('fee_amount', 'net_amount')
+        ->execute()
+        ->first();
+
+      $this->assertEquals(0.30, $updated['fee_amount'], 'fee_amount should be reconciled via sandbox');
+      $this->assertEquals(49.70, $updated['net_amount']);
+    }
+    finally {
+      \Civi::settings()->revert('eway_settlement_sync_mode');
+    }
+  }
+
 }
