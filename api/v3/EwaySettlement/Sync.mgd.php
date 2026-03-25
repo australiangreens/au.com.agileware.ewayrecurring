@@ -8,6 +8,7 @@ return [
   [
     'name' => 'Cron:EwaySettlement.Sync',
     'entity' => 'Job',
+    'update' => 'never',
     'params' => [
       'version' => 3,
       'name' => 'eWay Settlement Sync',
@@ -16,6 +17,7 @@ return [
       'api_entity' => 'EwaySettlement',
       'api_action' => 'Sync',
       'parameters' => '',
+      'is_active' => 0,
     ],
   ],
 ];

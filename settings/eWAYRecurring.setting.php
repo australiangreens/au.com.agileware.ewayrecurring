@@ -73,7 +73,7 @@ return [
     'type' => 'String',
     'is_domain' => 1,
     'is_contact' => 0,
-    'default' => 'live',
+    'default' => 'test',
     'title' => 'Settlement Sync: Mode',
     'description' => 'Controls which payment processors are included in the settlement sync.',
     'html_type' => 'Select',
