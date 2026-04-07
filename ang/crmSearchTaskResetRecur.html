@@ -1,0 +1,25 @@
+<div class="crm-block">
+  <div class="help">
+    <p>
+      {{ ts('This will reset %1 selected recurring contributions to "In Progress" and reset their failure count to 0.', {1: $ctrl.idsCount}) }}
+    </p>
+  </div>
+  
+  <div class="crm-section">
+    <div class="label">
+      <label>{{ ts('New Scheduled Date') }}</label>
+    </div>
+    <div class="content">
+      <input crm-ui-datepicker ng-model="$ctrl.next_date" placeholder="Keep current date" />
+      <div class="description">
+        {{ ts('Update the next scheduled payment date.') }}
+      </div>
+    </div>
+  </div>
+
+  <div class="crm-button-bar">
+    <button class="crm-button crm-button-primary" ng-click="$ctrl.save()">
+      <i class="crm-i fa-check"></i> {{ ts('Reset Contributions') }}
+    </button>
+  </div>
+</div>

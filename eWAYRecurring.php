@@ -312,3 +312,27 @@ function ewayrecurring_civicrm_permission(&$permissions) {
     'label' => E::ts('CiviContribute: edit payment tokens'),
   ];
 }
+
+/**
+ * Implements hook_civicrm_searchKitTasks()
+ */
+function ewayrecurring_civicrm_searchKitTasks(&$tasks) {
+  $tasks['ContributionRecur']['reset_recur_status'] = [
+    'title' => E::ts('Reset to In Progress'),
+    'icon' => 'fa-undo',
+    'ui' => [
+      'component' => 'crmSearchTaskResetRecur',
+    ],
+  ];
+}
+
+/**
+ * Implements hook_civicrm_angularModules()
+ */
+function myextension_civicrm_angularModules(&$modules) {
+  $modules['ewayrecurring'] = [
+    'ext' => 'ewayrecurring',
+    'js' => ['ang/crmSearchTaskResetRecur.js'],
+    'partialHtml' => ['ang/crmSearchTaskResetRecur.html'],
+  ];
+}
