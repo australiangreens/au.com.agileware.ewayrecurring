@@ -316,23 +316,10 @@ function ewayrecurring_civicrm_permission(&$permissions) {
 /**
  * Implements hook_civicrm_searchKitTasks()
  */
-function ewayrecurring_civicrm_searchKitTasks(&$tasks) {
+function ewayrecurring_civicrm_searchKitTasks(array &$tasks, bool $checkPermissions, ?int $userID = 0) {
   $tasks['ContributionRecur']['reset_recur_status'] = [
     'title' => E::ts('Reset to In Progress'),
     'icon' => 'fa-undo',
-    'ui' => [
-      'component' => 'crmSearchTaskResetRecur',
-    ],
-  ];
-}
-
-/**
- * Implements hook_civicrm_angularModules()
- */
-function myextension_civicrm_angularModules(&$modules) {
-  $modules['ewayrecurring'] = [
-    'ext' => 'ewayrecurring',
-    'js' => ['ang/crmSearchTaskResetRecur.js'],
-    'partialHtml' => ['ang/crmSearchTaskResetRecur.html'],
+    'uiDialog' => [ 'templateUrl' => '~/ewayrecurring/crmSearchTaskResetRecur.html', ],
   ];
 }
