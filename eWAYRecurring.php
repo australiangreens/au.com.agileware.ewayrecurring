@@ -318,8 +318,9 @@ function ewayrecurring_civicrm_permission(&$permissions) {
  */
 function ewayrecurring_civicrm_searchKitTasks(array &$tasks, bool $checkPermissions, ?int $userID = 0) {
   $tasks['ContributionRecur']['reset_recur_status'] = [
-    'title' => E::ts('Reset to In Progress'),
+    'title' => E::ts('Reactivate'),
     'icon' => 'fa-undo',
+    'module' => 'ewayrecurring',
     'uiDialog' => [ 'templateUrl' => '~/ewayrecurring/crmSearchTaskResetRecur.html', ],
   ];
 }

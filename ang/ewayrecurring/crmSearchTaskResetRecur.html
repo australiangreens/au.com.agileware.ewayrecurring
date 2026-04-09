@@ -1,25 +1,26 @@
-<div class="crm-block">
-  <div class="help">
-    <p>
-      {{ ts('This will reset %1 selected recurring contributions to "In Progress" and reset their failure count to 0.', {1: $ctrl.idsCount}) }}
-    </p>
-  </div>
-  
-  <div class="crm-section">
-    <div class="label">
-      <label>{{ ts('New Scheduled Date') }}</label>
+<div id="bootstrap-theme" crm-dialog="crmSearchTask">
+  <form name="crmSearchTaskResetRecur" ng-controller="crmSearchTaskResetRecur as $ctrl">
+    <div class="alert alert-info">
+      <p><i class="fa fa-info-circle"></i> {{ $ctrl.statusMessage }}</p>
     </div>
-    <div class="content">
-      <input crm-ui-datepicker ng-model="$ctrl.next_date" placeholder="Keep current date" />
+
+    <div ng-if="! $ctrl.run" class="crm-section form-inline">
+      <label for="crm-search-task-next-date">{{:: ts('Update Schedule Date') }}</label>
+      <input class="form-control" id="crm-search-task-next-date" crm-ui-datepicker="{time: false}"
+        ng-model="$ctrl.next_date" />
       <div class="description">
-        {{ ts('Update the next scheduled payment date.') }}
+        {{:: ts('Update the next scheduled payment date. Leave blank for no change.') }}
       </div>
     </div>
-  </div>
 
-  <div class="crm-button-bar">
-    <button class="crm-button crm-button-primary" ng-click="$ctrl.save()">
-      <i class="crm-i fa-check"></i> {{ ts('Reset Contributions') }}
-    </button>
-  </div>
+    <div ng-if="$ctrl.run" class="crm-search-task-progress">
+      <h5>{{:: ts('Reactivating Recurring Contributions...') }}</h5>
+      <crm-search-batch-runner entity="'ContributionRecur'" action="update" params="$ctrl.run" ids="$ctrl.ids" id-field="id" success="$ctrl.onSuccess(result)" error="$ctrl.onError(error)"></crm-search-batch-runner>
+    </div>
+
+    <crm-dialog-button text="ts('Cancel')" icons="{primary: 'fa-times'}" on-click="$ctrl.cancel()"
+      disabled="$ctrl.run" />
+    <crm-dialog-button text="ts('Reactivate Recurring Contributions')" icons="{primary: 'fa-check'}"
+      on-click="$ctrl.submit()" disabled="$ctrl.run" />
+  </form>
 </div>
