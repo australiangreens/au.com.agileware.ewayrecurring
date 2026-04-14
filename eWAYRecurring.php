@@ -3,6 +3,8 @@
 require_once __DIR__ . '/eWAYRecurring.civix.php';
 require_once __DIR__ . '/vendor/autoload.php';
 
+use Civi\Api4\ContributionRecur;
+use Civi\Api4\StatusPreference;
 use Civi\Payment\Exception\PaymentProcessorException;
 use CRM_eWAYRecurring_ExtensionUtil as E;
 
@@ -323,4 +325,47 @@ function ewayrecurring_civicrm_searchKitTasks(array &$tasks, bool $checkPermissi
     'module' => 'ewayrecurring',
     'uiDialog' => [ 'templateUrl' => '~/ewayrecurring/crmSearchTaskResetRecur.html', ],
   ];
+}
+
+/**
+ * Implements hook_civicrm_check()
+ */
+function ewayrecurring_civicrm_check(&$messages, $statusNames, $includeDisabled) {
+  if($statusNames && !in_array('ewayrecurring_failed', $statusNames)) {
+    return;
+  }
+
+  if (!$includeDisabled) {
+    $disabled = StatusPreference::get(FALSE)
+      ->addWhere('is_active', '=', FALSE)
+      ->addWhere('domain_id', '=', 'current_domain')
+      ->addWhere('name', '=', 'ewayrecurring_failed')
+      ->selectRowCount()
+      ->execute()
+      ->count() > 0;
+
+    if ($disabled) {
+      return;
+    }
+  }
+
+  try {
+    $failed = ContributionRecur::get(FALSE)
+      ->addWhere('is_test', 'IS NOT NULL')
+      ->addWhere('contribution_status_id:name', '=', 'Failed')
+      ->addWhere('failure_retry_date', '<', 'now - 4 hours')
+      ->selectRowCount()
+      ->execute()
+      ->count();
+
+    if ($failed > 0) {
+      $messages[] = new CRM_Utils_Check_message(
+        'ewayrecurring_failed',
+        E::ts('Found %1 failed recurring contributions that may be stuck due to e.g. invalid card details. Visit <a href="%2">Failed Recurring Contributions</a> for more details .', [1 => $failed, 2 => CRM_Utils_System::url('civicrm/contribute/failedrecurring')]),
+        E::ts('eWAYRecurring - failed recurring contributions')
+      );
+    }
+  } catch (CRM_Core_Exception $e) {
+    // ...
+  }
 }
