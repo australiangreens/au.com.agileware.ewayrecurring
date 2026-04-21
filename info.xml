@@ -15,15 +15,15 @@
     <email>support@agileware.com.au</email>
   </maintainer>
   <develStage>stable</develStage>
-  <releaseDate>2026-03-17</releaseDate>
-  <version>2.7.7</version>
+  <releaseDate>2026-04-14</releaseDate>
+  <version>2.7.8</version>
   <compatibility>
     <ver>5.82</ver>
   </compatibility>
   <comments/>
   <civix>
     <namespace>CRM/eWAYRecurring</namespace>
-    <format>25.10.1</format>
+    <format>25.10.2</format>
   </civix>
   <mixins>
     <mixin>menu-xml@1.0.0</mixin>
@@ -31,6 +31,8 @@
     <mixin>entity-types-php@2.0.0</mixin>
     <mixin>scan-classes@1.0.0</mixin>
     <mixin>smarty@1.0.3</mixin>
+    <mixin>ang-php@1.0.0</mixin>
+    <mixin>mgd-php@2.0.0</mixin>
   </mixins>
   <classloader>
     <psr0 prefix="CRM_" path="."/>
