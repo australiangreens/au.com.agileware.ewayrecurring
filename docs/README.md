@@ -75,8 +75,6 @@ Recommended setting for **Redirect After Payment Processing** is **0 seconds**.
 
 ![Redirect After Payment Processing](img/eway-shared-page-redirect-after-payment-delay.png)
 
-
-
 ## eWay Transactions Verification
 
 The **eWay Transaction Verifications** job verifies the pending transactions in
@@ -96,6 +94,33 @@ of which can be configured.
 To update the **Maximum retries** and **Retry delay (in days)** go to
 `civicrm/ewayrecurring/settings`. The default **Maximum retries** is 3
 and **Retry delay** is 4 days.
+
+You will be notified if there are any failed contributions that are no longer being retried via a
+CiviCRM system status check.
+
+## Reactivating Failed Contributions
+
+This processor includes a Search kit action to Reactivate a failed Recurring Contribution.
+The action is not currently available to the built-in Recurring Contribution list on the contact
+card, however may be added to any Search kit on Recurring Contributions, for example the included
+"Failed Recurring Contributions" listing.
+
+This action will prompt you for an optional date to reset the next scheduled date to process the
+recurring contribution, and then:
+
+- Set the Number of Failures to 0,
+- Clear the Retry Failed Attempt Date,
+- Update the Next Scheduled Contribution Date as requested, and
+- Reset the Recurring Contribution's status to in progress.
+
+The contribution will then be processed as soon as the Next Scheduled Contribution Date has passed,
+*which will most likely be the next processing run* if you do not explicitly set it to a future
+date when prompted.
+
+Using this action on Recurring Contributions with other payment processors is possible and will
+update the recurring contribution status, however the behaviour depends on the payment processor
+setup and a majority do not take the status in CiviCRM into account due to the payment being
+processed automatically on the gateway.
 
 ## CiviCRM template overrides
 
