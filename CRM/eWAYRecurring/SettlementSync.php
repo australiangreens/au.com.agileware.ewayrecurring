@@ -29,7 +29,8 @@ class CRM_eWAYRecurring_SettlementSync {
 
   /**
    * Returns the valid options for the eway_settlement_sync_mode setting.
-   * Used as a pseudoconstant callback by the settings form.
+   * Used as the pseudoconstant callback for the (non-UI) setting, so API
+   * and drush consumers get a documented option list.
    *
    * @return array<string, string> Value => label pairs.
    */
@@ -196,8 +197,9 @@ class CRM_eWAYRecurring_SettlementSync {
   /**
    * Main entry point. Fetches all unreconciled eWAY contributions once, then
    * for each processor queries the settlement API and reconciles matches.
-   * Which processor types are included is controlled by the
-   * eway_settlement_sync_mode setting ('live', 'test', or 'both').
+   * Which processor types are included is controlled by the non-UI
+   * eway_settlement_sync_mode setting ('live', 'test', or 'both'),
+   * which defaults to 'live'.
    *
    * Processor isolation is achieved through trxn_id matching: each processor's
    * settlement API only returns that processor's transactions, so contributions
