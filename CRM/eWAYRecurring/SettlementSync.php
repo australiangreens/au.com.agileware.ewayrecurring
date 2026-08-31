@@ -82,16 +82,17 @@ class CRM_eWAYRecurring_SettlementSync {
    * setDistinct(TRUE) prevents duplicate rows when a contribution has multiple
    * linked financial transactions.
    *
+   * When $contributionId is given the query is scoped to that single
+   * contribution: the explicit ID is the scope, so the lookback window and
+   * the sync-mode is_test filter are skipped. The safety guards (Completed,
+   * eWAY, unreconciled, non-empty trxn_id) still apply, so a scoped run can
+   * never reconcile something the unscoped run would refuse to.
+   *
    * @param string $mode One of 'live', 'test', or 'both'.
+   * @param int|null $contributionId Optional. Restrict to a single contribution.
    * @return array Array of contribution records with id, trxn_id, total_amount, receive_date.
    */
-  public function getUnreconciledContributions(string $mode): array {
-    $lookbackDays = (int) Civi::settings()->get('eway_settlement_sync_lookback_days') ?: 5;
-    // Note: cutoff uses a full datetime while the eWAY Settlement API uses calendar
-    // dates (Y-m-d). Both use the same lookback value, so edge-of-day contributions
-    // are consistently included on both sides within the same calendar day.
-    $cutoffDate = date('Y-m-d H:i:s', strtotime("-{$lookbackDays} days"));
-
+  public function getUnreconciledContributions(string $mode, ?int $contributionId = NULL): array {
     $query = Contribution::get(FALSE)
       ->addSelect('id', 'trxn_id', 'total_amount', 'receive_date')
       ->addJoin('FinancialTrxn AS ft', 'INNER', 'EntityFinancialTrxn')
@@ -101,18 +102,29 @@ class CRM_eWAYRecurring_SettlementSync {
       ->addWhere('processor.is_active', '=', TRUE)
       ->addWhere('contribution_status_id', '=', 1)
       ->addWhere('fee_amount', '=', 0)
-      ->addWhere('receive_date', '>=', $cutoffDate)
       ->addWhere('trxn_id', 'IS NOT NULL')
       ->addWhere('trxn_id', 'IS NOT EMPTY')
       ->addGroupBy('id');
 
-    if ($mode === 'live') {
-      $query->addWhere('processor.is_test', '=', FALSE);
+    if ($contributionId !== NULL) {
+      $query->addWhere('id', '=', $contributionId);
     }
-    elseif ($mode === 'test') {
-      $query->addWhere('processor.is_test', '=', TRUE);
+    else {
+      $lookbackDays = (int) Civi::settings()->get('eway_settlement_sync_lookback_days') ?: 5;
+      // Note: cutoff uses a full datetime while the eWAY Settlement API uses calendar
+      // dates (Y-m-d). Both use the same lookback value, so edge-of-day contributions
+      // are consistently included on both sides within the same calendar day.
+      $cutoffDate = date('Y-m-d H:i:s', strtotime("-{$lookbackDays} days"));
+      $query->addWhere('receive_date', '>=', $cutoffDate);
+
+      if ($mode === 'live') {
+        $query->addWhere('processor.is_test', '=', FALSE);
+      }
+      elseif ($mode === 'test') {
+        $query->addWhere('processor.is_test', '=', TRUE);
+      }
+      // 'both': no is_test filter
     }
-    // 'both': no is_test filter
 
     return $query->execute()->getArrayCopy();
   }
@@ -204,8 +216,14 @@ class CRM_eWAYRecurring_SettlementSync {
    * Processor isolation is achieved through trxn_id matching: each processor's
    * settlement API only returns that processor's transactions, so contributions
    * are only updated when their trxn_id appears in the correct processor's data.
+   *
+   * @param int|null $contributionId Optional. Restrict the run to a single
+   *   contribution (manual / QA use). When set, contribution selection ignores
+   *   the lookback window and sync-mode filters; the eWAY Settlement API date
+   *   range still uses eway_settlement_sync_lookback_days, so that setting must
+   *   be wide enough to cover the target contribution's age.
    */
-  public function sync(): void {
+  public function sync(?int $contributionId = NULL): void {
     $mode = Civi::settings()->get('eway_settlement_sync_mode') ?: 'live';
 
     $processors = $this->getEwayProcessors($mode);
@@ -213,7 +231,7 @@ class CRM_eWAYRecurring_SettlementSync {
       return;
     }
 
-    $contributions = $this->getUnreconciledContributions($mode);
+    $contributions = $this->getUnreconciledContributions($mode, $contributionId);
     if (empty($contributions)) {
       return;
     }

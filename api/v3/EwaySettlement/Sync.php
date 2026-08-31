@@ -8,7 +8,16 @@ use CRM_eWAYRecurring_ExtensionUtil as E;
  * @param array $spec
  */
 function _civicrm_api3_eway_settlement_Sync_spec(&$spec) {
-  // No parameters required.
+  $spec['contribution_id'] = [
+    'name' => 'contribution_id',
+    'title' => 'Contribution ID',
+    'description' => 'Optional. Restrict the sync to a single contribution (manual / QA use). '
+      . 'When set, contribution selection ignores the lookback window and sync-mode filters; '
+      . 'the eWAY Settlement API date range still uses eway_settlement_sync_lookback_days, so '
+      . "ensure that setting covers the target contribution's age.",
+    'type' => CRM_Utils_Type::T_INT,
+    'api.required' => 0,
+  ];
 }
 
 /**
@@ -17,13 +26,16 @@ function _civicrm_api3_eway_settlement_Sync_spec(&$spec) {
  * Queries the eWAY Settlement Search API and reconciles fee_amount and
  * net_amount on Completed contributions that have not yet been reconciled.
  *
- * Invoked by the "eWay Settlement Sync" scheduled job (Daily).
+ * Invoked by the "eWay Settlement Sync" scheduled job (Daily). Pass
+ * contribution_id to reconcile a single contribution instead of the full
+ * lookback window.
  *
  * @param array $params
  * @return array API result descriptor
  */
 function civicrm_api3_eway_settlement_Sync($params) {
+  $contributionId = !empty($params['contribution_id']) ? (int) $params['contribution_id'] : NULL;
   $sync = new CRM_eWAYRecurring_SettlementSync();
-  $sync->sync();
+  $sync->sync($contributionId);
   return civicrm_api3_create_success([], $params, 'EwaySettlement', 'Sync');
 }

@@ -335,6 +335,47 @@ class CRM_eWAYRecurring_SettlementSyncTest extends \PHPUnit\Framework\TestCase i
     $this->assertContains($testContributionId, $ids, 'Test contribution should be returned in both mode');
   }
 
+  public function testGetUnreconciledContributionsScopedToContributionId(): void {
+    $processorId = $this->createEwayProcessor(FALSE);
+    $targetId = $this->createCompletedEwayContribution($processorId, 'TXN_SCOPE_01', 100.00, 0.00);
+    $otherId = $this->createCompletedEwayContribution($processorId, 'TXN_SCOPE_02', 100.00, 0.00);
+
+    $sync = new CRM_eWAYRecurring_SettlementSync();
+    $result = $sync->getUnreconciledContributions('live', $targetId);
+
+    $ids = array_column($result, 'id');
+    $this->assertContains($targetId, $ids, 'Scoped contribution should be returned');
+    $this->assertNotContains($otherId, $ids, 'Other unreconciled contributions should be excluded when scoped');
+  }
+
+  public function testGetUnreconciledContributionsScopedIgnoresLookbackWindow(): void {
+    $processorId = $this->createEwayProcessor(FALSE);
+    // Older than any sane lookback window.
+    $oldId = $this->createCompletedEwayContribution($processorId, 'TXN_SCOPE_03', 100.00, 0.00, '-90 days');
+
+    \Civi::settings()->set('eway_settlement_sync_lookback_days', 5);
+    try {
+      $sync = new CRM_eWAYRecurring_SettlementSync();
+      $result = $sync->getUnreconciledContributions('live', $oldId);
+
+      $ids = array_column($result, 'id');
+      $this->assertContains($oldId, $ids, 'Scoped run should ignore the lookback window');
+    }
+    finally {
+      \Civi::settings()->revert('eway_settlement_sync_lookback_days');
+    }
+  }
+
+  public function testGetUnreconciledContributionsScopedStillGuardsAgainstReconciled(): void {
+    $processorId = $this->createEwayProcessor(FALSE);
+    $reconciledId = $this->createCompletedEwayContribution($processorId, 'TXN_SCOPE_04', 100.00, 0.55);
+
+    $sync = new CRM_eWAYRecurring_SettlementSync();
+    $result = $sync->getUnreconciledContributions('live', $reconciledId);
+
+    $this->assertEmpty($result, 'Scoped run must still skip an already-reconciled contribution');
+  }
+
   // ---------------------------------------------------------------------------
   // Task 5: reconcileContribution()
   // ---------------------------------------------------------------------------
@@ -501,6 +542,41 @@ class CRM_eWAYRecurring_SettlementSyncTest extends \PHPUnit\Framework\TestCase i
       ->first();
 
     $this->assertEquals(0.55, $contribution['fee_amount']);
+  }
+
+  public function testSyncScopedToContributionIdLeavesOthersUntouched(): void {
+    $processorId = $this->createEwayProcessor(FALSE);
+    $targetId = $this->createCompletedEwayContribution($processorId, '44444', 100.00);
+    $otherId = $this->createCompletedEwayContribution($processorId, '55555', 100.00);
+
+    // Settlement data is available for BOTH contributions...
+    $settlementTransactions = [
+      ['TransactionID' => 44444, 'FeePerTransaction' => 55, 'Amount' => 10000],
+      ['TransactionID' => 55555, 'FeePerTransaction' => 77, 'Amount' => 10000],
+    ];
+
+    $sync = $this->syncWithMockedHttp([
+      $this->makeSettlementResponse($settlementTransactions),
+      $this->makeSettlementResponse([]),
+    ]);
+
+    // ...but the run is scoped to the target only.
+    $sync->sync($targetId);
+
+    $target = Contribution::get(FALSE)
+      ->addWhere('id', '=', $targetId)
+      ->addSelect('fee_amount', 'net_amount')
+      ->execute()
+      ->first();
+    $other = Contribution::get(FALSE)
+      ->addWhere('id', '=', $otherId)
+      ->addSelect('fee_amount', 'net_amount')
+      ->execute()
+      ->first();
+
+    $this->assertEquals(0.55, $target['fee_amount'], 'Scoped contribution should be reconciled');
+    $this->assertEquals(99.45, $target['net_amount']);
+    $this->assertEquals(0.00, $other['fee_amount'], 'Non-scoped contribution must be left untouched');
   }
 
   public function testSyncTestModeReconcilesSandboxContributions(): void {
