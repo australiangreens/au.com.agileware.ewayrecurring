@@ -13,7 +13,7 @@ function _civicrm_api3_eway_settlement_Sync_spec(&$spec) {
     'title' => 'Contribution ID',
     'description' => 'Optional. Restrict the sync to a single contribution (manual / QA use). '
       . 'When set, contribution selection ignores the lookback window and sync-mode filters; '
-      . 'the eWAY Settlement API date range still uses eway_settlement_sync_lookback_days, so '
+      . 'the eWAY Settlement API date range still uses eway_settlement_window_days, so '
       . "ensure that setting covers the target contribution's age.",
     'type' => CRM_Utils_Type::T_INT,
     'api.required' => 0,

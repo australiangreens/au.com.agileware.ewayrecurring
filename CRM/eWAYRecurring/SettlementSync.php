@@ -229,7 +229,7 @@ class CRM_eWAYRecurring_SettlementSync {
    * @param int|null $contributionId Optional. Restrict the run to a single
    *   contribution (manual / QA use). When set, contribution selection ignores
    *   the lookback window and sync-mode filters; the eWAY Settlement API date
-   *   range still uses eway_settlement_sync_lookback_days, so that setting must
+   *   range still uses eway_settlement_window_days, so that setting must
    *   be wide enough to cover the target contribution's age.
    */
   public function sync(?int $contributionId = NULL): void {
