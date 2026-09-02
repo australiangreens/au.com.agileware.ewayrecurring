@@ -157,18 +157,24 @@ class CRM_eWAYRecurring_SettlementSync {
   }
 
   /**
-   * Fetches all settlement transactions for a processor over the lookback window,
-   * handling pagination automatically.
+   * Fetches all settlement transactions for a processor for a single calendar
+   * day, following pagination. The day is queried as StartDate == EndDate so
+   * the request is byte-for-byte identical on every run and eWAY's
+   * server-side report cache is reused.
    *
    * @param array $processor Processor record with user_name, password, is_test.
+   * @param string $day Calendar day, 'Y-m-d'.
    * @return array Flat array of settlement transaction records.
+   * @throws \CRM_eWAYRecurring_SettlementNotReadyException if eWAY has not
+   *   built the report for this date range yet.
+   * @throws \RuntimeException on any other eWAY API-level error.
    */
-  public function fetchAllSettlementTransactions(array $processor): array {
+  public function fetchSettlementDay(array $processor, string $day): array {
     $all = [];
     $page = 1;
 
     do {
-      $response = $this->fetchSettlementPage($processor, $page);
+      $response = $this->fetchSettlementPage($processor, $day, $page);
       $transactions = $response['SettlementTransactions'] ?? [];
       $all = array_merge($all, $transactions);
       $page++;
@@ -178,31 +184,31 @@ class CRM_eWAYRecurring_SettlementSync {
   }
 
   /**
-   * Fetches a single page of settlement data from the eWAY API.
+   * Fetches a single page of settlement data for one calendar day.
    *
-   * NOTE: Verify exact parameter names against https://eway.io/api-v3/#settlement-search
-   * before deploying. The parameters below are based on eWAY API conventions.
+   * NOTE: exact parameter names / ReportMode are not yet confirmed against
+   * https://eway.io/api-v3/#settlement-search — see the follow-up spike in the
+   * design doc. Per-day iteration is correct under either the transaction-date
+   * or settlement-date interpretation.
    *
    * @param array $processor
+   * @param string $day Calendar day, 'Y-m-d', used for both StartDate and EndDate.
    * @param int $page 1-indexed page number.
    * @return array Decoded response body.
-   * @throws \RuntimeException on eWAY API-level errors (non-empty Errors field).
+   * @throws \CRM_eWAYRecurring_SettlementNotReadyException on eWAY's async-build response.
+   * @throws \RuntimeException on any other non-empty Errors field.
    */
-  private function fetchSettlementPage(array $processor, int $page): array {
+  private function fetchSettlementPage(array $processor, string $day, int $page): array {
     $baseUrl = $processor['is_test']
       ? self::SETTLEMENT_URL_SANDBOX
       : self::SETTLEMENT_URL_PRODUCTION;
-
-    $lookbackDays = $this->getWindowDays();
-    $endDate = date('Y-m-d');
-    $startDate = date('Y-m-d', strtotime("-{$lookbackDays} days"));
 
     $response = $this->httpClient->get($baseUrl, [
       'auth' => [$processor['user_name'], $processor['password']],
       'query' => [
         'ReportMode' => 'TransactionOnly',
-        'StartDate' => $startDate,
-        'EndDate' => $endDate,
+        'StartDate' => $day,
+        'EndDate' => $day,
         'Page' => $page,
         'PageSize' => self::PAGE_SIZE,
       ],
@@ -210,6 +216,16 @@ class CRM_eWAYRecurring_SettlementSync {
 
     $body = json_decode($response->getBody()->getContents(), TRUE) ?? [];
     if (!empty($body['Errors'])) {
+      // eWAY builds each (StartDate, EndDate) report asynchronously; the first
+      // request for a range returns this marker and data follows ~60 min later.
+      // Pre-enablement / genuinely-unavailable ranges surface either this
+      // marker or an empty result; both are safe to skip. Any other error text
+      // is treated as a hard failure.
+      if (stripos((string) $body['Errors'], 'data will be available') !== FALSE) {
+        throw new CRM_eWAYRecurring_SettlementNotReadyException(
+          'eWAY settlement report not ready for ' . $day . ': ' . $body['Errors']
+        );
+      }
       throw new \RuntimeException('eWAY Settlement API error: ' . $body['Errors']);
     }
     return $body;
@@ -253,7 +269,8 @@ class CRM_eWAYRecurring_SettlementSync {
 
     foreach ($processors as $processor) {
       try {
-        $settlementTransactions = $this->fetchAllSettlementTransactions($processor);
+        // TEMP (Task 6 replaces this whole method with per-day window iteration):
+        $settlementTransactions = $this->fetchSettlementDay($processor, date('Y-m-d'));
 
         foreach ($settlementTransactions as $txn) {
           $trxnId = (string) $txn['TransactionID'];
