@@ -16,7 +16,7 @@ class CRM_eWAYRecurring_SettlementSync {
   const SETTLEMENT_URL_SANDBOX = 'https://api.sandbox.ewaypayments.com/Search/Settlement';
   const PAGE_SIZE = 200;
 
-  // Settlement window = lookback setting (single config drives both contribution query and API date range)
+  // Settlement window = single config drives both the contribution candidacy query and the API date range
 
   /**
    * @var \GuzzleHttp\Client
@@ -74,7 +74,7 @@ class CRM_eWAYRecurring_SettlementSync {
 
   /**
    * Returns all Completed eWAY contributions that have not been reconciled
-   * (fee_amount = 0) within the lookback window, filtered by sync mode.
+   * (fee_amount = 0) within the settlement window, filtered by sync mode.
    *
    * The join path follows the CiviCRM financial data model:
    *   Contribution → EntityFinancialTrxn (bridge) → FinancialTrxn → PaymentProcessor → PaymentProcessorType
@@ -139,10 +139,13 @@ class CRM_eWAYRecurring_SettlementSync {
   /**
    * Settlement sync window size in days, back from today. Bounds both the
    * unreconciled-contribution candidacy query and the per-day settlement
-   * report iteration. Falls back to 5 if the setting is unset or zero.
+   * report iteration. Falls back to 10 (the setting metadata default) if the
+   * setting is unset or zero, and is lower-bounded to 1 so a negative or zero
+   * value written via the API cannot blank the candidacy window or produce a
+   * broken strtotime('--3 days') expression.
    */
   private function getWindowDays(): int {
-    return (int) Civi::settings()->get('eway_settlement_window_days') ?: 5;
+    return max(1, (int) Civi::settings()->get('eway_settlement_window_days') ?: 10);
   }
 
   /**
@@ -162,7 +165,11 @@ class CRM_eWAYRecurring_SettlementSync {
       ->addWhere('id', '=', $contribution['id'])
       // Re-assert the unreconciled predicate: if a manual reconciliation wrote
       // fee_amount between candidate selection and now, this update matches
-      // nothing and the existing data is preserved.
+      // nothing and the existing data is preserved. This narrows the race
+      // window but does not close it: APIv4 Update resolves matching ids and
+      // then writes via the BAO, and the emitted UPDATE statement does not
+      // carry this predicate, so a write landing between the internal select
+      // and the write can still clobber.
       ->addWhere('fee_amount', '=', 0)
       ->execute();
 
@@ -196,7 +203,10 @@ class CRM_eWAYRecurring_SettlementSync {
       $transactions = $response['SettlementTransactions'] ?? [];
       $all = array_merge($all, $transactions);
       $page++;
-    } while (count($transactions) >= self::PAGE_SIZE);
+      // Hard ceiling: a misbehaving API that ignores the Page parameter would
+      // otherwise loop forever returning a full page. 100 pages x PAGE_SIZE
+      // (200) = 20,000 rows/day, far beyond any real settlement volume.
+    } while (count($transactions) >= self::PAGE_SIZE && $page <= 100);
 
     return $all;
   }
@@ -234,17 +244,24 @@ class CRM_eWAYRecurring_SettlementSync {
 
     $body = json_decode($response->getBody()->getContents(), TRUE) ?? [];
     if (!empty($body['Errors'])) {
+      // eWAY may return Errors as a string or as an array of strings. Normalise
+      // to a string first: an array payload would otherwise trigger an "Array to
+      // string conversion" notice and, worse, silently miss the not-ready
+      // marker below - escalating a soft skip to a hard processor abort.
+      $errors = is_array($body['Errors'])
+        ? implode(', ', $body['Errors'])
+        : (string) $body['Errors'];
       // eWAY builds each (StartDate, EndDate) report asynchronously; the first
       // request for a range returns this marker and data follows ~60 min later.
       // Pre-enablement / genuinely-unavailable ranges surface either this
       // marker or an empty result; both are safe to skip. Any other error text
       // is treated as a hard failure.
-      if (stripos((string) $body['Errors'], 'data will be available') !== FALSE) {
+      if (stripos($errors, 'data will be available') !== FALSE) {
         throw new CRM_eWAYRecurring_SettlementNotReadyException(
-          'eWAY settlement report not ready for ' . $day . ': ' . $body['Errors']
+          'eWAY settlement report not ready for ' . $day . ': ' . $errors
         );
       }
-      throw new \RuntimeException('eWAY Settlement API error: ' . $body['Errors']);
+      throw new \RuntimeException('eWAY Settlement API error: ' . $errors);
     }
     return $body;
   }
@@ -291,6 +308,24 @@ class CRM_eWAYRecurring_SettlementSync {
 
     $processors = $this->getProcessorsById(array_keys($mapByProcessor));
     $days = $this->settlementWindowDays();
+
+    // A candidate carries the processor that took it; if that processor is not
+    // in the loaded set (deactivated, deleted, or filtered out) its
+    // contributions would be skipped silently. Surface that.
+    $loadedProcessorIds = array_map('intval', array_column($processors, 'id'));
+    $missingProcessorIds = array_diff(
+      array_map('intval', array_keys($mapByProcessor)),
+      $loadedProcessorIds
+    );
+    if (!empty($missingProcessorIds)) {
+      Civi::log()->warning(
+        'eWAY Settlement Sync: {count} candidate processor(s) not found / not loaded: {ids}',
+        [
+          'count' => count($missingProcessorIds),
+          'ids' => implode(', ', $missingProcessorIds),
+        ]
+      );
+    }
 
     $reconciled = 0;
     $deferred = 0;
@@ -377,6 +412,9 @@ class CRM_eWAYRecurring_SettlementSync {
     return PaymentProcessor::get(FALSE)
       ->addSelect('id', 'user_name', 'password', 'is_test')
       ->addWhere('id', 'IN', $ids)
+      // Explicit is_test filter so GetActionDefaultsProvider does not inject
+      // is_test = 0 - see the comment in getEwayProcessors() for the full trap.
+      ->addWhere('is_test', 'IN', [TRUE, FALSE])
       ->addOrderBy('id', 'ASC')
       ->execute()
       ->getArrayCopy();

@@ -95,7 +95,7 @@ class CRM_eWAYRecurring_SettlementSyncTest extends \PHPUnit\Framework\TestCase i
       ->addValue('total_amount', $totalAmount)
       ->addValue('fee_amount', $feeAmount)
       ->addValue('net_amount', $totalAmount - $feeAmount)
-      ->addValue('contribution_status_id', 2)
+      ->addValue('contribution_status_id:name', 'Completed')
       ->addValue('trxn_id', $trxnId)
       ->addValue('receive_date', $date)
       ->execute()
@@ -314,7 +314,7 @@ class CRM_eWAYRecurring_SettlementSyncTest extends \PHPUnit\Framework\TestCase i
       ->addValue('total_amount', 100.00)
       ->addValue('fee_amount', 0.00)
       ->addValue('net_amount', 100.00)
-      ->addValue('contribution_status_id', 2)
+      ->addValue('contribution_status_id:name', 'Completed')
       ->addValue('trxn_id', 'TXN006')
       ->addValue('receive_date', date('Y-m-d H:i:s'))
       ->execute()
@@ -585,9 +585,22 @@ class CRM_eWAYRecurring_SettlementSyncTest extends \PHPUnit\Framework\TestCase i
     $sync = $this->syncWithMockedHttp([$this->makeErrorResponse('Invalid credentials supplied')]);
     $processor = ['id' => 1, 'user_name' => 'key', 'password' => 'pass', 'is_test' => FALSE];
 
-    $this->expectException(\RuntimeException::class);
-    $this->expectExceptionMessageMatches('/Invalid credentials/');
-    $sync->fetchSettlementDay($processor, '2026-08-15');
+    // Catch explicitly: expectException(\RuntimeException) alone would also be
+    // satisfied by CRM_eWAYRecurring_SettlementNotReadyException (a subclass),
+    // which would wrongly turn a hard error into a soft per-day skip.
+    try {
+      $sync->fetchSettlementDay($processor, '2026-08-15');
+      $this->fail('Expected a RuntimeException for a non "not ready" API error');
+    }
+    catch (\RuntimeException $e) {
+      $this->assertNotInstanceOf(
+        CRM_eWAYRecurring_SettlementNotReadyException::class,
+        $e,
+        'A generic API error must not be treated as the not-ready marker'
+      );
+      $this->assertInstanceOf(\RuntimeException::class, $e);
+      $this->assertMatchesRegularExpression('/Invalid credentials/', $e->getMessage());
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -621,6 +634,10 @@ class CRM_eWAYRecurring_SettlementSyncTest extends \PHPUnit\Framework\TestCase i
   }
 
   public function testSyncSkipsAlreadyReconciledContributions(): void {
+    // The already-reconciled contribution (fee_amount != 0) is now excluded at
+    // candidate selection, so sync() returns before any HTTP call and the
+    // queued responses go unused. This now verifies exclusion-at-selection,
+    // not the matching path - still a valid regression guard.
     $processorId = $this->createEwayProcessor(FALSE);
     $contributionId = $this->createCompletedEwayContribution($processorId, '22222', 100.00, 0.55);
 
@@ -721,11 +738,14 @@ class CRM_eWAYRecurring_SettlementSyncTest extends \PHPUnit\Framework\TestCase i
     $processorId = $this->createEwayProcessor(FALSE);
     $cid = $this->createCompletedEwayContribution($processorId, 'RDY', 100.00);
 
-    // window = 1 => days [today-1, today]. First day ready with the match,
-    // second day still building.
+    // window = 1 => days [today-1, today], iterated oldest first. Day 1
+    // (today-1) is still building; day 2 (today) is ready and carries the
+    // match. The reconciliation on day 2 is only reachable if the not-ready
+    // exception on day 1 was caught and the per-day loop did `continue`
+    // instead of aborting the processor - so this proves the per-day skip.
     $sync = $this->syncWithMockedHttp([
-      $this->makeSettlementResponse([['TransactionID' => 'RDY', 'FeePerTransaction' => 25, 'Amount' => 10000]]),
       $this->makeNotReadyResponse(),
+      $this->makeSettlementResponse([['TransactionID' => 'RDY', 'FeePerTransaction' => 25, 'Amount' => 10000]]),
     ]);
 
     $sync->sync();
@@ -745,8 +765,9 @@ class CRM_eWAYRecurring_SettlementSyncTest extends \PHPUnit\Framework\TestCase i
     $cidA = $this->createCompletedEwayContribution($processorA, 'AAA', 100.00);
     $cidB = $this->createCompletedEwayContribution($processorB, 'BBB', 100.00);
 
-    // Processor A (lower contribution id => visited first): first day 401s,
-    // which aborts A. Processor B: match then empty.
+    // Processor A is visited first because getProcessorsById() orders by
+    // `id ASC` and A was created first (do not remove that ORDER BY): its
+    // first day 401s, which aborts A. Processor B: match then empty.
     $sync = $this->syncWithMockedHttp([
       new Response(401, [], 'Unauthorized'),
       $this->makeSettlementResponse([['TransactionID' => 'BBB', 'FeePerTransaction' => 40, 'Amount' => 10000]]),
@@ -767,7 +788,9 @@ class CRM_eWAYRecurring_SettlementSyncTest extends \PHPUnit\Framework\TestCase i
     $cidA = $this->createCompletedEwayContribution($processorA, 'DUP', 100.00);
     $cidB = $this->createCompletedEwayContribution($processorB, 'DUP', 100.00);
 
-    // A visited first (2 days), then B (2 days). Only A's first day carries DUP.
+    // A is visited first (2 days), then B (2 days), because getProcessorsById()
+    // orders by `id ASC` and A was created first (do not remove that ORDER BY).
+    // Only A's first day carries DUP.
     $sync = $this->syncWithMockedHttp([
       $this->makeSettlementResponse([['TransactionID' => 'DUP', 'FeePerTransaction' => 55, 'Amount' => 10000]]),
       $this->makeSettlementResponse([]),
@@ -821,6 +844,19 @@ class CRM_eWAYRecurring_SettlementSyncTest extends \PHPUnit\Framework\TestCase i
         'Every request authenticates as the target processor'
       );
     }
+
+    // One request per calendar day, oldest first, each querying a single day
+    // (StartDate == EndDate). window = 1 => [today-1, today].
+    $yesterday = (new \DateTimeImmutable('today'))->sub(new \DateInterval('P1D'))->format('Y-m-d');
+    $today = (new \DateTimeImmutable('today'))->format('Y-m-d');
+
+    $uri0 = (string) $container[0]['request']->getUri();
+    $this->assertStringContainsString('StartDate=' . $yesterday, $uri0, 'First request starts on today-1');
+    $this->assertStringContainsString('EndDate=' . $yesterday, $uri0, 'First request ends on today-1 (single day)');
+
+    $uri1 = (string) $container[1]['request']->getUri();
+    $this->assertStringContainsString('StartDate=' . $today, $uri1, 'Second request starts on today');
+    $this->assertStringContainsString('EndDate=' . $today, $uri1, 'Second request ends on today (single day)');
   }
 
 }
