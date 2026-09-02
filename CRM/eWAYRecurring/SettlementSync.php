@@ -377,6 +377,7 @@ class CRM_eWAYRecurring_SettlementSync {
     return PaymentProcessor::get(FALSE)
       ->addSelect('id', 'user_name', 'password', 'is_test')
       ->addWhere('id', 'IN', $ids)
+      ->addOrderBy('id', 'ASC')
       ->execute()
       ->getArrayCopy();
   }
