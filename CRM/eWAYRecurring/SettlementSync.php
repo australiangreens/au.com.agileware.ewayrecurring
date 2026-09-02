@@ -110,7 +110,7 @@ class CRM_eWAYRecurring_SettlementSync {
       $query->addWhere('id', '=', $contributionId);
     }
     else {
-      $lookbackDays = (int) Civi::settings()->get('eway_settlement_sync_lookback_days') ?: 5;
+      $lookbackDays = $this->getWindowDays();
       // Note: cutoff uses a full datetime while the eWAY Settlement API uses calendar
       // dates (Y-m-d). Both use the same lookback value, so edge-of-day contributions
       // are consistently included on both sides within the same calendar day.
@@ -127,6 +127,15 @@ class CRM_eWAYRecurring_SettlementSync {
     }
 
     return $query->execute()->getArrayCopy();
+  }
+
+  /**
+   * Settlement sync window size in days, back from today. Bounds both the
+   * unreconciled-contribution candidacy query and the per-day settlement
+   * report iteration. Falls back to 5 if the setting is unset or zero.
+   */
+  private function getWindowDays(): int {
+    return (int) Civi::settings()->get('eway_settlement_window_days') ?: 5;
   }
 
   /**
@@ -184,7 +193,7 @@ class CRM_eWAYRecurring_SettlementSync {
       ? self::SETTLEMENT_URL_SANDBOX
       : self::SETTLEMENT_URL_PRODUCTION;
 
-    $lookbackDays = (int) Civi::settings()->get('eway_settlement_sync_lookback_days') ?: 5;
+    $lookbackDays = $this->getWindowDays();
     $endDate = date('Y-m-d');
     $startDate = date('Y-m-d', strtotime("-{$lookbackDays} days"));
 

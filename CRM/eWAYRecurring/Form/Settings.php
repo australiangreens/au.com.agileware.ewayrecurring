@@ -27,10 +27,10 @@ class CRM_eWAYRecurring_Form_Settings extends CRM_Core_Form {
       $this->_errors['eway_recurring_contribution_retry_delay'] = 'Retry delay should be a valid number';
     }
 
-    if (isset($submittedValues['eway_settlement_sync_lookback_days'])) {
-      $val = (int) $submittedValues['eway_settlement_sync_lookback_days'];
+    if (isset($submittedValues['eway_settlement_window_days'])) {
+      $val = (int) $submittedValues['eway_settlement_window_days'];
       if ($val < 1 || $val > 90) {
-        $this->_errors['eway_settlement_sync_lookback_days'] = 'Lookback days must be between 1 and 90';
+        $this->_errors['eway_settlement_window_days'] = 'Settlement sync window must be between 1 and 90 days';
       }
     }
 

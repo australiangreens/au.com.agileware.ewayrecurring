@@ -236,13 +236,20 @@ class CRM_eWAYRecurring_SettlementSyncTest extends \PHPUnit\Framework\TestCase i
     $this->assertNotContains($reconciledId, $ids, 'Already reconciled contribution should not be returned');
   }
 
+  public function testWindowSettingDefaultsToTen(): void {
+    // revert() clears any value set by setUp() / a previous test, exposing the
+    // metadata default from settings/eWAYRecurring.setting.php.
+    \Civi::settings()->revert('eway_settlement_window_days');
+    $this->assertEquals(10, (int) \Civi::settings()->get('eway_settlement_window_days'));
+  }
+
   public function testGetUnreconciledContributionsRespectsLookbackWindow(): void {
     $processorId = $this->createEwayProcessor(FALSE);
     $recentId = $this->createCompletedEwayContribution($processorId, 'TXN003', 100.00, 0.00, '-3 days');
     $oldId = $this->createCompletedEwayContribution($processorId, 'TXN004', 100.00, 0.00, '-10 days');
 
     // Explicitly set lookback to 5 days so the test is not sensitive to the default.
-    \Civi::settings()->set('eway_settlement_sync_lookback_days', 5);
+    \Civi::settings()->set('eway_settlement_window_days', 5);
 
     try {
       $sync = new CRM_eWAYRecurring_SettlementSync();
@@ -253,7 +260,7 @@ class CRM_eWAYRecurring_SettlementSyncTest extends \PHPUnit\Framework\TestCase i
       $this->assertNotContains($oldId, $ids, 'Old contribution should not be returned');
     }
     finally {
-      \Civi::settings()->revert('eway_settlement_sync_lookback_days');
+      \Civi::settings()->revert('eway_settlement_window_days');
     }
   }
 
@@ -353,7 +360,7 @@ class CRM_eWAYRecurring_SettlementSyncTest extends \PHPUnit\Framework\TestCase i
     // Older than any sane lookback window.
     $oldId = $this->createCompletedEwayContribution($processorId, 'TXN_SCOPE_03', 100.00, 0.00, '-90 days');
 
-    \Civi::settings()->set('eway_settlement_sync_lookback_days', 5);
+    \Civi::settings()->set('eway_settlement_window_days', 5);
     try {
       $sync = new CRM_eWAYRecurring_SettlementSync();
       $result = $sync->getUnreconciledContributions('live', $oldId);
@@ -362,7 +369,7 @@ class CRM_eWAYRecurring_SettlementSyncTest extends \PHPUnit\Framework\TestCase i
       $this->assertContains($oldId, $ids, 'Scoped run should ignore the lookback window');
     }
     finally {
-      \Civi::settings()->revert('eway_settlement_sync_lookback_days');
+      \Civi::settings()->revert('eway_settlement_window_days');
     }
   }
 
