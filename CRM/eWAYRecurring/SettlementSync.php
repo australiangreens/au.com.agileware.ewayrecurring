@@ -156,11 +156,22 @@ class CRM_eWAYRecurring_SettlementSync {
     $feeAmount = round($settlementData['FeePerTransaction'] / 100, 2);
     $netAmount = round((float) $contribution['total_amount'] - $feeAmount, 2);
 
-    Contribution::update(FALSE)
+    $result = Contribution::update(FALSE)
       ->addValue('fee_amount', $feeAmount)
       ->addValue('net_amount', $netAmount)
       ->addWhere('id', '=', $contribution['id'])
+      // Re-assert the unreconciled predicate: if a manual reconciliation wrote
+      // fee_amount between candidate selection and now, this update matches
+      // nothing and the existing data is preserved.
+      ->addWhere('fee_amount', '=', 0)
       ->execute();
+
+    if (count($result) === 0) {
+      Civi::log()->debug(
+        'eWAY Settlement Sync: contribution {id} already reconciled elsewhere; skipped',
+        ['id' => $contribution['id']]
+      );
+    }
   }
 
   /**

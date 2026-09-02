@@ -488,6 +488,37 @@ class CRM_eWAYRecurring_SettlementSyncTest extends \PHPUnit\Framework\TestCase i
     $this->assertEquals(49.67, $updated['net_amount']);
   }
 
+  public function testReconcileContributionDoesNotOverwriteFeeSetAfterSelection(): void {
+    $processorId = $this->createEwayProcessor(FALSE);
+    $contributionId = $this->createCompletedEwayContribution($processorId, 'TXN_RACE', 100.00, 0.00);
+
+    // Snapshot as the sync would have, while fee_amount is still 0.
+    $contribution = Contribution::get(FALSE)
+      ->addWhere('id', '=', $contributionId)
+      ->addSelect('id', 'total_amount')
+      ->execute()
+      ->first();
+
+    // A manual reconciliation lands between candidate selection and reconcile.
+    Contribution::update(FALSE)
+      ->addValue('fee_amount', 0.60)
+      ->addValue('net_amount', 99.40)
+      ->addWhere('id', '=', $contributionId)
+      ->execute();
+
+    $sync = new CRM_eWAYRecurring_SettlementSync();
+    $sync->reconcileContribution($contribution, ['TransactionID' => 1, 'FeePerTransaction' => 55]);
+
+    $after = Contribution::get(FALSE)
+      ->addWhere('id', '=', $contributionId)
+      ->addSelect('fee_amount', 'net_amount')
+      ->execute()
+      ->first();
+
+    $this->assertEquals(0.60, $after['fee_amount'], 'A fee written after selection must not be overwritten');
+    $this->assertEquals(99.40, $after['net_amount']);
+  }
+
   // ---------------------------------------------------------------------------
   // fetchSettlementDay()
   // ---------------------------------------------------------------------------
