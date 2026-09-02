@@ -28,9 +28,12 @@ class CRM_eWAYRecurring_SettlementSyncTest extends \PHPUnit\Framework\TestCase i
 
   public function setUp(): void {
     parent::setUp();
+    \Civi::settings()->set('eway_settlement_window_days', 1);
   }
 
   public function tearDown(): void {
+    \Civi::settings()->revert('eway_settlement_window_days');
+    \Civi::settings()->revert('eway_settlement_sync_mode');
     parent::tearDown();
   }
 
@@ -44,7 +47,7 @@ class CRM_eWAYRecurring_SettlementSyncTest extends \PHPUnit\Framework\TestCase i
    * Uses a static counter to ensure unique names within the test run
    * (payment_processor has a domain_id + name uniqueness constraint).
    */
-  private function createEwayProcessor(bool $isTest = FALSE): int {
+  private function createEwayProcessor(bool $isTest = FALSE, string $userName = 'test-api-key', string $password = 'test-api-password'): int {
     static $counter = 0;
     $counter++;
 
@@ -58,8 +61,8 @@ class CRM_eWAYRecurring_SettlementSyncTest extends \PHPUnit\Framework\TestCase i
       ->addValue('payment_processor_type_id', $typeId)
       ->addValue('name', 'Test eWAY Processor ' . $counter)
       ->addValue('title', 'Test eWAY Processor ' . $counter)
-      ->addValue('user_name', 'test-api-key')
-      ->addValue('password', 'test-api-password')
+      ->addValue('user_name', $userName)
+      ->addValue('password', $password)
       ->addValue('is_test', $isTest ? 1 : 0)
       ->addValue('is_active', 1)
       ->addValue('domain_id', \CRM_Core_Config::domainID())
@@ -711,6 +714,112 @@ class CRM_eWAYRecurring_SettlementSyncTest extends \PHPUnit\Framework\TestCase i
     }
     finally {
       \Civi::settings()->revert('eway_settlement_sync_mode');
+    }
+  }
+
+  public function testSyncDefersNotReadyDayButReconcilesReadyDay(): void {
+    $processorId = $this->createEwayProcessor(FALSE);
+    $cid = $this->createCompletedEwayContribution($processorId, 'RDY', 100.00);
+
+    // window = 1 => days [today-1, today]. First day ready with the match,
+    // second day still building.
+    $sync = $this->syncWithMockedHttp([
+      $this->makeSettlementResponse([['TransactionID' => 'RDY', 'FeePerTransaction' => 25, 'Amount' => 10000]]),
+      $this->makeNotReadyResponse(),
+    ]);
+
+    $sync->sync();
+
+    $updated = Contribution::get(FALSE)
+      ->addWhere('id', '=', $cid)
+      ->addSelect('fee_amount', 'net_amount')
+      ->execute()
+      ->first();
+    $this->assertEquals(0.25, $updated['fee_amount'], 'Reconciled from the ready day');
+    $this->assertEquals(99.75, $updated['net_amount']);
+  }
+
+  public function testSyncHardErrorOnOneProcessorDoesNotBlockOthers(): void {
+    $processorA = $this->createEwayProcessor(FALSE);
+    $processorB = $this->createEwayProcessor(FALSE);
+    $cidA = $this->createCompletedEwayContribution($processorA, 'AAA', 100.00);
+    $cidB = $this->createCompletedEwayContribution($processorB, 'BBB', 100.00);
+
+    // Processor A (lower contribution id => visited first): first day 401s,
+    // which aborts A. Processor B: match then empty.
+    $sync = $this->syncWithMockedHttp([
+      new Response(401, [], 'Unauthorized'),
+      $this->makeSettlementResponse([['TransactionID' => 'BBB', 'FeePerTransaction' => 40, 'Amount' => 10000]]),
+      $this->makeSettlementResponse([]),
+    ]);
+
+    $sync->sync();
+
+    $a = Contribution::get(FALSE)->addWhere('id', '=', $cidA)->addSelect('fee_amount')->execute()->first();
+    $b = Contribution::get(FALSE)->addWhere('id', '=', $cidB)->addSelect('fee_amount')->execute()->first();
+    $this->assertEquals(0.00, $a['fee_amount'], 'Processor A aborted on 401; contribution untouched');
+    $this->assertEquals(0.40, $b['fee_amount'], 'Processor B still processed after A failed');
+  }
+
+  public function testSyncDoesNotMatchContributionAgainstAnotherProcessorsSettlement(): void {
+    $processorA = $this->createEwayProcessor(FALSE);
+    $processorB = $this->createEwayProcessor(FALSE);
+    $cidA = $this->createCompletedEwayContribution($processorA, 'DUP', 100.00);
+    $cidB = $this->createCompletedEwayContribution($processorB, 'DUP', 100.00);
+
+    // A visited first (2 days), then B (2 days). Only A's first day carries DUP.
+    $sync = $this->syncWithMockedHttp([
+      $this->makeSettlementResponse([['TransactionID' => 'DUP', 'FeePerTransaction' => 55, 'Amount' => 10000]]),
+      $this->makeSettlementResponse([]),
+      $this->makeSettlementResponse([]),
+      $this->makeSettlementResponse([]),
+    ]);
+
+    $sync->sync();
+
+    $a = Contribution::get(FALSE)->addWhere('id', '=', $cidA)->addSelect('fee_amount')->execute()->first();
+    $b = Contribution::get(FALSE)->addWhere('id', '=', $cidB)->addSelect('fee_amount')->execute()->first();
+    $this->assertEquals(0.55, $a['fee_amount'], 'Processor A contribution reconciled from A settlement');
+    $this->assertEquals(0.00, $b['fee_amount'], 'Processor B contribution NOT reconciled from A settlement despite trxn_id collision');
+  }
+
+  public function testSyncScopedOlderThanWindowMakesNoHttpCall(): void {
+    $processorId = $this->createEwayProcessor(FALSE);
+    $oldId = $this->createCompletedEwayContribution($processorId, 'OLD', 100.00, 0.00, '-90 days');
+
+    // Empty mock queue: any HTTP attempt throws "Mock queue is empty".
+    $sync = $this->syncWithMockedHttp([]);
+    $sync->sync($oldId);
+
+    $c = Contribution::get(FALSE)->addWhere('id', '=', $oldId)->addSelect('fee_amount')->execute()->first();
+    $this->assertEquals(0.00, $c['fee_amount'], 'Contribution older than the window is not reconciled and triggers no API call');
+  }
+
+  public function testSyncScopedQueriesOnlyItsOwnProcessor(): void {
+    $this->createEwayProcessor(FALSE, 'other-key', 'other-pass');
+    $processorTarget = $this->createEwayProcessor(FALSE, 'target-key', 'target-pass');
+    $targetCid = $this->createCompletedEwayContribution($processorTarget, 'TGT', 100.00);
+
+    $container = [];
+    $history = \GuzzleHttp\Middleware::history($container);
+    $mock = new MockHandler([
+      $this->makeSettlementResponse([['TransactionID' => 'TGT', 'FeePerTransaction' => 55, 'Amount' => 10000]]),
+      $this->makeSettlementResponse([]),
+    ]);
+    $stack = HandlerStack::create($mock);
+    $stack->push($history);
+    $client = new \GuzzleHttp\Client(['handler' => $stack]);
+    $sync = new CRM_eWAYRecurring_SettlementSync($client);
+
+    $sync->sync($targetCid);
+
+    $this->assertCount(2, $container, 'Only the target contribution\'s own processor is queried (1 processor x 2 days)');
+    foreach ($container as $txn) {
+      $this->assertEquals(
+        'Basic ' . base64_encode('target-key:target-pass'),
+        $txn['request']->getHeaderLine('Authorization'),
+        'Every request authenticates as the target processor'
+      );
     }
   }
 

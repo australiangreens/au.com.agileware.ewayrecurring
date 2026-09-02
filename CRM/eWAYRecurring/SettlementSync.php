@@ -94,7 +94,7 @@ class CRM_eWAYRecurring_SettlementSync {
    *
    * @param string $mode One of 'live', 'test', or 'both'.
    * @param int|null $contributionId Optional. Restrict to a single contribution.
-   * @return array Array of contribution records with id, trxn_id, total_amount, receive_date.
+   * @return array Array of contribution records with id, trxn_id, total_amount, receive_date, processor.id.
    */
   public function getUnreconciledContributions(string $mode, ?int $contributionId = NULL): array {
     $query = Contribution::get(FALSE)
@@ -250,64 +250,135 @@ class CRM_eWAYRecurring_SettlementSync {
   }
 
   /**
-   * Main entry point. Fetches all unreconciled eWAY contributions once, then
-   * for each processor queries the settlement API and reconciles matches.
-   * Which processor types are included is controlled by the non-UI
-   * eway_settlement_sync_mode setting ('live', 'test', or 'both'),
-   * which defaults to 'live'.
+   * Main entry point. Fetches all unreconciled eWAY contributions once, groups
+   * them by the payment processor that took each one, then for each such
+   * processor iterates the settlement window one calendar day at a time and
+   * reconciles matches from that processor's settlement data only.
    *
-   * Processor isolation is achieved through trxn_id matching: each processor's
-   * settlement API only returns that processor's transactions, so contributions
-   * are only updated when their trxn_id appears in the correct processor's data.
+   * Each day is queried as StartDate == EndDate, so the request is identical
+   * on every run and eWAY's server-side report cache is reused. A day whose
+   * report eWAY has not built yet is logged and skipped; the next scheduled
+   * run re-issues the identical query. Which processor types are considered is
+   * set by eway_settlement_sync_mode ('live' | 'test' | 'both', default
+   * 'live') via the contribution query.
    *
    * @param int|null $contributionId Optional. Restrict the run to a single
-   *   contribution (manual / QA use). When set, contribution selection ignores
-   *   the lookback window and sync-mode filters; the eWAY Settlement API date
-   *   range still uses eway_settlement_window_days, so that setting must
-   *   be wide enough to cover the target contribution's age.
+   *   contribution (manual / QA). The contribution must still satisfy every
+   *   guard and fall within eway_settlement_window_days; only that
+   *   contribution's own processor is queried.
    */
   public function sync(?int $contributionId = NULL): void {
     $mode = Civi::settings()->get('eway_settlement_sync_mode') ?: 'live';
 
-    $processors = $this->getEwayProcessors($mode);
-    if (empty($processors)) {
-      return;
-    }
-
     $contributions = $this->getUnreconciledContributions($mode, $contributionId);
     if (empty($contributions)) {
+      if ($contributionId !== NULL) {
+        Civi::log()->info(
+          'eWAY Settlement Sync: contribution {id} not eligible (not an unreconciled Completed eWAY contribution within the settlement window)',
+          ['id' => $contributionId]
+        );
+      }
       return;
     }
 
-    // Build lookup map: string trxn_id => contribution record.
-    $contributionMap = [];
+    // Group candidates by their own payment processor: a contribution is only
+    // ever matched against settlement data from the processor that took it.
+    $mapByProcessor = [];
     foreach ($contributions as $contribution) {
-      $contributionMap[(string) $contribution['trxn_id']] = $contribution;
+      $processorId = (int) $contribution['processor.id'];
+      $mapByProcessor[$processorId][(string) $contribution['trxn_id']] = $contribution;
     }
 
-    foreach ($processors as $processor) {
-      try {
-        // TEMP (Task 6 replaces this whole method with per-day window iteration):
-        $settlementTransactions = $this->fetchSettlementDay($processor, date('Y-m-d'));
+    $processors = $this->getProcessorsById(array_keys($mapByProcessor));
+    $days = $this->settlementWindowDays();
 
-        foreach ($settlementTransactions as $txn) {
-          $trxnId = (string) $txn['TransactionID'];
-          if (isset($contributionMap[$trxnId]) && isset($txn['FeePerTransaction'])) {
-            $this->reconcileContribution($contributionMap[$trxnId], $txn);
-            // Remove from map so a contribution is not processed twice
-            // if it somehow appears in multiple processors' settlement data.
-            unset($contributionMap[$trxnId]);
+    $reconciled = 0;
+    $deferred = 0;
+    $queried = 0;
+    $unmatched = 0;
+
+    foreach ($processors as $processor) {
+      $processorId = (int) $processor['id'];
+      $map = $mapByProcessor[$processorId] ?? [];
+
+      try {
+        foreach ($days as $day) {
+          try {
+            $rows = $this->fetchSettlementDay($processor, $day);
+          }
+          catch (CRM_eWAYRecurring_SettlementNotReadyException $e) {
+            Civi::log()->info(
+              'eWAY Settlement Sync: report for {date} (processor {id}) not built yet; next run will retry',
+              ['date' => $day, 'id' => $processorId]
+            );
+            $deferred++;
+            continue;
+          }
+
+          $queried++;
+          foreach ($rows as $txn) {
+            $trxnId = (string) ($txn['TransactionID'] ?? '');
+            if ($trxnId !== '' && isset($map[$trxnId]) && isset($txn['FeePerTransaction'])) {
+              $this->reconcileContribution($map[$trxnId], $txn);
+              unset($map[$trxnId]);
+              $reconciled++;
+            }
           }
         }
       }
       catch (\Exception $e) {
         Civi::log()->warning('eWAY Settlement Sync failed for processor {id}: {msg}', [
-          'id' => $processor['id'],
+          'id' => $processorId,
           'msg' => $e->getMessage(),
           'exception' => $e,
         ]);
       }
+
+      $unmatched += count($map);
     }
+
+    Civi::log()->info(
+      'eWAY Settlement Sync complete: {processors} processor(s), {queried} day(s) queried, {deferred} deferred, {reconciled} reconciled, {unmatched} unmatched',
+      [
+        'processors' => count($processors),
+        'queried' => $queried,
+        'deferred' => $deferred,
+        'reconciled' => $reconciled,
+        'unmatched' => $unmatched,
+      ]
+    );
+  }
+
+  /**
+   * Ordered list of calendar days (oldest first) in the settlement window:
+   * today - getWindowDays() .. today, inclusive, as 'Y-m-d' strings.
+   *
+   * @return string[]
+   */
+  private function settlementWindowDays(): array {
+    $today = new \DateTimeImmutable('today');
+    $days = [];
+    for ($i = $this->getWindowDays(); $i >= 0; $i--) {
+      $days[] = $today->sub(new \DateInterval('P' . $i . 'D'))->format('Y-m-d');
+    }
+    return $days;
+  }
+
+  /**
+   * Payment processor credential records for the given ids.
+   *
+   * @param int[] $ids
+   * @return array
+   */
+  private function getProcessorsById(array $ids): array {
+    if (empty($ids)) {
+      return [];
+    }
+    return PaymentProcessor::get(FALSE)
+      ->addSelect('id', 'user_name', 'password', 'is_test')
+      ->addWhere('id', 'IN', $ids)
+      ->execute()
+      ->getArrayCopy();
   }
 
 }
