@@ -159,6 +159,16 @@ class CRM_eWAYRecurring_SettlementSyncTest extends \PHPUnit\Framework\TestCase i
   }
 
   // ---------------------------------------------------------------------------
+  // Task 2: SettlementNotReadyException
+  // ---------------------------------------------------------------------------
+
+  public function testSettlementNotReadyExceptionIsARuntimeException(): void {
+    $e = new CRM_eWAYRecurring_SettlementNotReadyException('report building');
+    $this->assertInstanceOf(\RuntimeException::class, $e);
+    $this->assertSame('report building', $e->getMessage());
+  }
+
+  // ---------------------------------------------------------------------------
   // Task 3: getEwayProcessors()
   // ---------------------------------------------------------------------------
 
