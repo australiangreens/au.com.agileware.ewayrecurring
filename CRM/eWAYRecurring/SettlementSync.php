@@ -74,7 +74,7 @@ class CRM_eWAYRecurring_SettlementSync {
 
   /**
    * Returns all Completed eWAY contributions that have not been reconciled
-   * (fee_amount = 0.00) within the lookback window, filtered by sync mode.
+   * (fee_amount = 0) within the lookback window, filtered by sync mode.
    *
    * The join path follows the CiviCRM financial data model:
    *   Contribution → EntityFinancialTrxn (bridge) → FinancialTrxn → PaymentProcessor → PaymentProcessorType
@@ -83,10 +83,14 @@ class CRM_eWAYRecurring_SettlementSync {
    * linked financial transactions.
    *
    * When $contributionId is given the query is scoped to that single
-   * contribution: the explicit ID is the scope, so the lookback window and
-   * the sync-mode is_test filter are skipped. The safety guards (Completed,
-   * eWAY, unreconciled, non-empty trxn_id) still apply, so a scoped run can
-   * never reconcile something the unscoped run would refuse to.
+   * contribution: the explicit id is the scope and the sync-mode is_test
+   * filter is skipped, but the window guard (receive_date >= today - window)
+   * and the safety guards (Completed, eWAY, fee_amount = 0, non-empty trxn_id)
+   * all still apply. A contribution older than the window returns no rows.
+   *
+   * Each row carries 'processor.id' — the payment processor that took the
+   * contribution — so the caller can match it only against that processor's
+   * settlement data.
    *
    * @param string $mode One of 'live', 'test', or 'both'.
    * @param int|null $contributionId Optional. Restrict to a single contribution.
@@ -94,7 +98,7 @@ class CRM_eWAYRecurring_SettlementSync {
    */
   public function getUnreconciledContributions(string $mode, ?int $contributionId = NULL): array {
     $query = Contribution::get(FALSE)
-      ->addSelect('id', 'trxn_id', 'total_amount', 'receive_date')
+      ->addSelect('id', 'trxn_id', 'total_amount', 'receive_date', 'processor.id')
       ->addJoin('FinancialTrxn AS ft', 'INNER', 'EntityFinancialTrxn')
       ->addJoin('PaymentProcessor AS processor', 'INNER', ['processor.id', '=', 'ft.payment_processor_id'])
       ->addJoin('PaymentProcessorType AS processor_type', 'INNER', ['processor_type.id', '=', 'processor.payment_processor_type_id'])
@@ -104,19 +108,22 @@ class CRM_eWAYRecurring_SettlementSync {
       ->addWhere('fee_amount', '=', 0)
       ->addWhere('trxn_id', 'IS NOT NULL')
       ->addWhere('trxn_id', 'IS NOT EMPTY')
-      ->addGroupBy('id');
+      ->addGroupBy('id')
+      ->addOrderBy('id', 'ASC');
+
+    $cutoffDate = date('Y-m-d H:i:s', strtotime('-' . $this->getWindowDays() . ' days'));
+    // Note: cutoff uses a full datetime while the eWAY Settlement API uses
+    // calendar dates (Y-m-d). Both derive from the same window value, so
+    // edge-of-day contributions are consistently included on both sides.
+    $query->addWhere('receive_date', '>=', $cutoffDate);
 
     if ($contributionId !== NULL) {
+      // The explicit id is the scope; the window guard above still applies so a
+      // scoped run can never reconcile something older than the unscoped run
+      // would. The sync-mode is_test filter is intentionally not applied here.
       $query->addWhere('id', '=', $contributionId);
     }
     else {
-      $lookbackDays = $this->getWindowDays();
-      // Note: cutoff uses a full datetime while the eWAY Settlement API uses calendar
-      // dates (Y-m-d). Both use the same lookback value, so edge-of-day contributions
-      // are consistently included on both sides within the same calendar day.
-      $cutoffDate = date('Y-m-d H:i:s', strtotime("-{$lookbackDays} days"));
-      $query->addWhere('receive_date', '>=', $cutoffDate);
-
       if ($mode === 'live') {
         $query->addWhere('processor.is_test', '=', FALSE);
       }

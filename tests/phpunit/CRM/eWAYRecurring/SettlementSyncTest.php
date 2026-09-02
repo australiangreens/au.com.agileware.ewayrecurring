@@ -372,6 +372,24 @@ class CRM_eWAYRecurring_SettlementSyncTest extends \PHPUnit\Framework\TestCase i
     $this->assertContains($testContributionId, $ids, 'Test contribution should be returned in both mode');
   }
 
+  public function testGetUnreconciledContributionsExposesProcessorId(): void {
+    $processorId = $this->createEwayProcessor(FALSE);
+    $cid = $this->createCompletedEwayContribution($processorId, 'TXN_PID_01', 100.00, 0.00);
+
+    $sync = new CRM_eWAYRecurring_SettlementSync();
+    $result = $sync->getUnreconciledContributions('live');
+
+    $row = NULL;
+    foreach ($result as $r) {
+      if ($r['id'] === $cid) {
+        $row = $r;
+        break;
+      }
+    }
+    $this->assertNotNull($row, 'Created contribution should be in the result set');
+    $this->assertEquals($processorId, (int) $row['processor.id'], 'Row should carry its payment processor id');
+  }
+
   public function testGetUnreconciledContributionsScopedToContributionId(): void {
     $processorId = $this->createEwayProcessor(FALSE);
     $targetId = $this->createCompletedEwayContribution($processorId, 'TXN_SCOPE_01', 100.00, 0.00);
@@ -385,18 +403,16 @@ class CRM_eWAYRecurring_SettlementSyncTest extends \PHPUnit\Framework\TestCase i
     $this->assertNotContains($otherId, $ids, 'Other unreconciled contributions should be excluded when scoped');
   }
 
-  public function testGetUnreconciledContributionsScopedIgnoresLookbackWindow(): void {
+  public function testGetUnreconciledContributionsScopedNowRespectsWindow(): void {
     $processorId = $this->createEwayProcessor(FALSE);
-    // Older than any sane lookback window.
+    // Older than any sane window.
     $oldId = $this->createCompletedEwayContribution($processorId, 'TXN_SCOPE_03', 100.00, 0.00, '-90 days');
 
     \Civi::settings()->set('eway_settlement_window_days', 5);
     try {
       $sync = new CRM_eWAYRecurring_SettlementSync();
       $result = $sync->getUnreconciledContributions('live', $oldId);
-
-      $ids = array_column($result, 'id');
-      $this->assertContains($oldId, $ids, 'Scoped run should ignore the lookback window');
+      $this->assertEmpty($result, 'A scoped run must now exclude a contribution older than the window');
     }
     finally {
       \Civi::settings()->revert('eway_settlement_window_days');
